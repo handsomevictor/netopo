@@ -212,3 +212,69 @@ test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 - [x] TUI 测试使用 TestBackend，不依赖真实终端
 - [x] connection_tracker 有 Linux/macOS 两套解析的单元测试（fixture 字符串）
 - [x] 每个模块均有 line coverage 估算 ≥ 70%（scanner 接近边界，主逻辑已覆盖）
+
+---
+
+## 七、轮次 2 补充（tester_agent 第二次执行）
+
+生成时间：2026-03-23
+执行者：tester_agent（第二轮）
+
+### 7.1 分析背景
+
+`cargo llvm-cov` 工具未安装（`cargo llvm-cov --version` 返回 NOT_INSTALLED），采用手动函数覆盖分析代替实际行覆盖率测量。
+
+### 7.2 各模块函数覆盖分析（手动估算）
+
+| 模块 | 公开/私有函数数 | 已测函数数 | 未测函数（原因） | 估算 line coverage |
+|------|--------------|-----------|----------------|-------------------|
+| cli.rs | 2（Cli结构体解析 + parse_ports） | 2 | 无 | ≥ 85% |
+| data_manager.rs | 0个独立函数（纯结构体+serde derive） | — | — | ≥ 90% |
+| scanner.rs | 7（scan_interfaces, detect_primary_interface, scan_subnet, probe_host, reverse_lookup, default_cidr, local_ip, parse_ports, cidr_to_host_ips） | 2（parse_ports, cidr_to_host_ips） | 5个涉及真实网络I/O，无法单元测试 | ≥ 65% |
+| connection_tracker.rs | 10+ | 8（通过平台无关fixture函数全覆盖解析+过滤逻辑） | get_connections等需真实系统调用 | ≥ 75% |
+| graph_builder.rs | 3（build_graph, dedup_edges, filter_by_min_connections） | 3 | 无 | ≥ 85% |
+| visualization.rs | 10+（output_json, output_dot, build_node_label, print_ascii, render_dot_string, render_ascii_string, run_tui, run_tui_loop, draw_ui及helpers） | 8（排除run_tui/run_tui_loop需要真实终端的函数） | run_tui/run_tui_loop（需要真实终端） | ≥ 70% |
+
+### 7.3 cli.rs 专项补充（轮次 2 核心工作）
+
+**补充前状态**：cli.rs 无任何 `#[cfg(test)]` 模块，覆盖率接近 0%（clap derive 代码虽然会被 main.rs 调用，但无单元测试覆盖）。
+
+**补充后**：在 `/Users/handsomevictor/Documents/GitHub/netopo/src/cli.rs` 末尾新增 `#[cfg(test)] mod tests`，包含 44 个新测试，涵盖：
+
+| 测试分类 | 数量 | 覆盖内容 |
+|---------|------|---------|
+| --scan flag | 2 | 默认 false，设置 true |
+| --ports 解析 | 6 | 无值返回默认、逗号分隔、范围、混合格式、默认值20个端口、非法输入错误 |
+| --subnet | 3 | 默认 None、192.168.1.0/24、10.0.0.0/8 |
+| --concurrency | 3 | 默认 256、自定义 128、自定义 512 |
+| --timeout | 2 | 默认 500、自定义 1000 |
+| --connections/--local-only/--exclude-loopback | 6 | 各 flag 默认 false + 设置 true |
+| --watch | 2 | 默认 None、设置值 |
+| --graph/--min-connections | 4 | 各 flag/option 默认值 + 设置 |
+| --output-json/--output-dot/--ascii/--tui | 8 | 各 flag/option 默认值 + 设置 |
+| --verbose/-v/--quiet/-q | 5 | 默认 false、短/长 flag 设置 true |
+| 组合参数 | 3 | --scan --ascii、完整扫描参数组合、--connections --local-only --exclude-loopback |
+
+### 7.4 轮次 2 测试结果
+
+```
+running 137 tests
+... (全部 ok)
+
+test result: ok. 137 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+**轮次 2 新增测试：44 个**（93 → 137）
+
+### 7.5 更新后的覆盖率估算
+
+| 模块 | 测试数（轮次1+2） | 估算 line coverage | 达标（≥70%） |
+|------|----------------|-------------------|------------|
+| cli.rs | 44（新增） | ≥ 85% | ✓ |
+| data_manager.rs | 9 | ≥ 90% | ✓ |
+| connection_tracker.rs | 24 | ≥ 75% | ✓ |
+| graph_builder.rs | 15 | ≥ 85% | ✓ |
+| visualization.rs | 25 | ≥ 70% | ✓ |
+| scanner.rs | 20 | ≥ 65% | △（网络I/O函数无法单元测试） |
+
+注：scanner.rs 估算 65% 略低于 70% 目标，但所有可测逻辑（parse_ports、cidr_to_host_ips）已全部覆盖；剩余 35% 均为异步网络 I/O 函数（scan_subnet、probe_host、scan_interfaces 等），需要集成测试环境方可覆盖。

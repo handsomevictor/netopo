@@ -181,6 +181,13 @@ fn truncate(s: &str, max_len: usize) -> String {
 // F8 — TUI 交互界面
 // ──────────────────────────────────────────────────────────────────────────────
 
+/// TUI 焦点面板枚举
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum FocusedPanel {
+    NodeList,
+    TopoGraph,
+}
+
 /// TUI 应用状态
 struct AppState {
     graph: Graph,
@@ -196,8 +203,8 @@ struct AppState {
     export_buf: String,
     /// 是否显示帮助覆盖层
     show_help: bool,
-    /// 当前焦点面板（0 = 节点列表, 1 = 拓扑图）
-    focus: u8,
+    /// 当前焦点面板
+    focused_panel: FocusedPanel,
     /// 状态栏消息
     status_msg: String,
     /// 本机 IP（用于重新扫描时标记本机节点）
@@ -214,7 +221,7 @@ impl AppState {
             export_mode: false,
             export_buf: String::new(),
             show_help: false,
-            focus: 0,
+            focused_panel: FocusedPanel::NodeList,
             status_msg: String::new(),
             local_ip,
         }
@@ -333,18 +340,17 @@ fn run_tui_loop(
                         app.status_msg = "正在刷新...".to_string();
                         terminal.draw(|f| draw_ui(f, app))?;
                         let local_ip = app.local_ip.clone();
-                        let rescan_result =
-                            tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current().block_on(async {
-                                    let edges =
-                                        connection_tracker::get_connections(false, false).await?;
-                                    Ok::<_, anyhow::Error>(graph_builder::build_graph(
-                                        vec![],
-                                        edges,
-                                        &local_ip,
-                                    ))
-                                })
-                            });
+                        let rescan_result = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                let edges =
+                                    connection_tracker::get_connections(false, false).await?;
+                                Ok::<_, anyhow::Error>(graph_builder::build_graph(
+                                    vec![],
+                                    edges,
+                                    &local_ip,
+                                ))
+                            })
+                        });
                         match rescan_result {
                             Ok(new_graph) => {
                                 app.graph = new_graph;
@@ -376,7 +382,10 @@ fn run_tui_loop(
                         app.export_buf = "netopo_export.json".to_string();
                     }
                     KeyCode::Tab => {
-                        app.focus = 1 - app.focus;
+                        app.focused_panel = match app.focused_panel {
+                            FocusedPanel::NodeList => FocusedPanel::TopoGraph,
+                            FocusedPanel::TopoGraph => FocusedPanel::NodeList,
+                        };
                     }
                     KeyCode::Char('?') => {
                         app.show_help = true;
@@ -448,11 +457,17 @@ fn draw_ui(f: &mut Frame, app: &AppState) {
         .collect();
 
     let node_block_title = format!("节点列表 ({})", filtered.len());
+    let node_border_color = if app.focused_panel == FocusedPanel::NodeList {
+        Color::Yellow
+    } else {
+        Color::Reset
+    };
     let node_list = List::new(node_items)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(node_block_title),
+                .title(node_block_title)
+                .border_style(Style::default().fg(node_border_color)),
         )
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol("► ");
@@ -463,8 +478,30 @@ fn draw_ui(f: &mut Frame, app: &AppState) {
 
     // 连接详情
     let detail_text = if let Some(node) = app.selected_node() {
-        let inbound = app.graph.edges.iter().filter(|e| e.dst == node.ip).count();
-        let outbound = app.graph.edges.iter().filter(|e| e.src == node.ip).count();
+        let inbound_tcp = app
+            .graph
+            .edges
+            .iter()
+            .filter(|e| e.dst == node.ip && e.protocol == "TCP")
+            .count();
+        let inbound_udp = app
+            .graph
+            .edges
+            .iter()
+            .filter(|e| e.dst == node.ip && e.protocol == "UDP")
+            .count();
+        let outbound_tcp = app
+            .graph
+            .edges
+            .iter()
+            .filter(|e| e.src == node.ip && e.protocol == "TCP")
+            .count();
+        let outbound_udp = app
+            .graph
+            .edges
+            .iter()
+            .filter(|e| e.src == node.ip && e.protocol == "UDP")
+            .count();
         let ports_str = node
             .ports
             .iter()
@@ -475,12 +512,16 @@ fn draw_ui(f: &mut Frame, app: &AppState) {
         vec![
             Line::from(format!(" 选中: {}", node.ip)),
             Line::from(vec![
-                Span::raw(" 入站连接: "),
-                Span::styled(inbound.to_string(), Style::default().fg(Color::Green)),
+                Span::raw(" 入站: TCP "),
+                Span::styled(inbound_tcp.to_string(), Style::default().fg(Color::Green)),
+                Span::raw("  UDP "),
+                Span::styled(inbound_udp.to_string(), Style::default().fg(Color::Yellow)),
             ]),
             Line::from(vec![
-                Span::raw(" 出站连接: "),
-                Span::styled(outbound.to_string(), Style::default().fg(Color::Green)),
+                Span::raw(" 出站: TCP "),
+                Span::styled(outbound_tcp.to_string(), Style::default().fg(Color::Green)),
+                Span::raw("  UDP "),
+                Span::styled(outbound_udp.to_string(), Style::default().fg(Color::Yellow)),
             ]),
             Line::from(format!(" 开放端口: {}", ports_str)),
             Line::from(format!(" Hostname: {}", hostname)),
@@ -495,10 +536,16 @@ fn draw_ui(f: &mut Frame, app: &AppState) {
 
     // ── 拓扑图（ASCII 渲染）─────────────────────────────────────────────────
     let topo_text = build_mini_ascii(app);
+    let topo_border_color = if app.focused_panel == FocusedPanel::TopoGraph {
+        Color::Yellow
+    } else {
+        Color::Reset
+    };
     let topo_widget = Paragraph::new(topo_text).block(
         Block::default()
             .borders(Borders::ALL)
-            .title("拓扑图 (ASCII 渲染)"),
+            .title("拓扑图 (ASCII 渲染)")
+            .border_style(Style::default().fg(topo_border_color)),
     );
     f.render_widget(topo_widget, main_chunks[2]);
 

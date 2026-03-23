@@ -8,6 +8,28 @@ mod visualization;
 use clap::Parser;
 use cli::Cli;
 
+async fn run_watch_mode(cli: &Cli, local_ip: &str) {
+    let interval = match cli.watch {
+        Some(s) => s,
+        None => return,
+    };
+    if !cli.quiet {
+        eprintln!("watch 模式：每 {} 秒刷新（Ctrl+C 退出）", interval);
+    }
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+        match connection_tracker::get_connections(cli.local_only, cli.exclude_loopback).await {
+            Ok(conns) => {
+                let new_graph = graph_builder::build_graph(vec![], conns, local_ip);
+                if cli.ascii {
+                    visualization::print_ascii(&new_graph);
+                }
+            }
+            Err(e) => eprintln!("刷新失败: {}", e),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -106,22 +128,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // ── watch 模式 ────────────────────────────────────────────────────────────
-    if let Some(interval) = cli.watch {
-        if !cli.quiet {
-            eprintln!("watch 模式：每 {} 秒刷新（Ctrl+C 退出）", interval);
-        }
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
-            match connection_tracker::get_connections(cli.local_only, cli.exclude_loopback).await {
-                Ok(conns) => {
-                    let new_graph = graph_builder::build_graph(vec![], conns, &local_ip);
-                    if cli.ascii {
-                        visualization::print_ascii(&new_graph);
-                    }
-                }
-                Err(e) => eprintln!("刷新失败: {}", e),
-            }
-        }
+    if cli.watch.is_some() {
+        run_watch_mode(&cli, &local_ip).await;
     }
 
     // 如果什么都没指定，打印帮助提示
