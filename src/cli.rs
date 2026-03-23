@@ -25,11 +25,21 @@ pub struct Cli {
     pub ports: Option<String>,
 
     /// 并发连接数，默认 256
-    #[arg(long, value_name = "N", default_value = "256", help_heading = "扫描选项")]
+    #[arg(
+        long,
+        value_name = "N",
+        default_value = "256",
+        help_heading = "扫描选项"
+    )]
     pub concurrency: usize,
 
     /// 单连接超时毫秒，默认 500
-    #[arg(long, value_name = "MS", default_value = "500", help_heading = "扫描选项")]
+    #[arg(
+        long,
+        value_name = "MS",
+        default_value = "500",
+        help_heading = "扫描选项"
+    )]
     pub timeout: u64,
 
     // ── 连接选项 ──────────────────────────────────────────────────────────────

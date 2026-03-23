@@ -924,7 +924,7 @@ tcp4       0      0  192.168.1.100.55231    192.168.1.1.443        ESTABLISHED\n
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn test_parse_hex_addr_ipv4() {
+    fn test_linux_parse_hex_addr_via_native_fn() {
         // 0101A8C0:0050 => 192.168.1.1:80
         let (ip, port) = parse_hex_addr("0101A8C0:0050").unwrap();
         assert_eq!(ip, "192.168.1.1");
