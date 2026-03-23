@@ -869,6 +869,20 @@ mod tests {
     use super::*;
     use crate::data_manager::{Edge, Graph, GraphSummary, Node};
 
+    /// 生成唯一临时文件路径，避免并行测试间文件名冲突导致 panic（exit 101）。
+    /// 使用进程 ID + 递增计数器确保每次调用返回不同路径。
+    fn unique_tmp(suffix: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "netopo_test_{}_p{}.{}",
+            n,
+            std::process::id(),
+            suffix
+        ))
+    }
+
     fn make_test_graph() -> Graph {
         Graph {
             nodes: vec![
@@ -940,7 +954,7 @@ mod tests {
     #[test]
     fn test_output_json_creates_valid_file() {
         let graph = make_test_graph();
-        let tmp = std::env::temp_dir().join("netopo_test_output.json");
+        let tmp = unique_tmp("json");
         output_json(&graph, tmp.to_str().unwrap()).unwrap();
         let content = std::fs::read_to_string(&tmp).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -955,7 +969,7 @@ mod tests {
     #[test]
     fn test_output_json_local_ip_preserved() {
         let graph = make_test_graph();
-        let tmp = std::env::temp_dir().join("netopo_test_local_ip.json");
+        let tmp = unique_tmp("json");
         output_json(&graph, tmp.to_str().unwrap()).unwrap();
         let content = std::fs::read_to_string(&tmp).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1030,7 +1044,7 @@ mod tests {
     #[test]
     fn test_output_dot_creates_valid_file() {
         let graph = make_test_graph();
-        let tmp = std::env::temp_dir().join("netopo_test_output.dot");
+        let tmp = unique_tmp("dot");
         output_dot(&graph, tmp.to_str().unwrap()).unwrap();
         let content = std::fs::read_to_string(&tmp).unwrap();
         assert!(content.contains("digraph netopo"));
