@@ -80,6 +80,22 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // 自动将默认网关（路由器）加入节点列表，即使 TCP 扫描未发现它
+    if cli.scan {
+        if let Some(gw) = scanner::detect_default_gateway() {
+            if !nodes.iter().any(|n| n.ip == gw) {
+                nodes.push(crate::data_manager::Node {
+                    ip: gw,
+                    hostname: None,
+                    ports: Vec::new(),
+                    is_local: false,
+                    mac: None,
+                    interface: None,
+                });
+            }
+        }
+    }
+
     // ── 连接追踪 ──────────────────────────────────────────────────────────────
     let mut edges = Vec::new();
 
@@ -103,6 +119,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let mut graph = graph_builder::build_graph(nodes, edges, &local_ip);
+
+    // 为没有 hostname 的节点做反向 DNS 解析
+    scanner::enrich_hostnames(&mut graph.nodes).await;
 
     // 按最小连接数过滤
     if let Some(min_conn) = cli.min_connections {

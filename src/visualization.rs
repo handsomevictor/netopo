@@ -121,18 +121,48 @@ fn print_node_block(node: &Node, edges: &[Edge], all_nodes: &[Node], is_local: b
     let hostname_str = node.hostname.as_deref().unwrap_or("").to_string();
     println!("  {:20}  {}", label, hostname_str);
 
-    // 出站连接
+    // 出站连接，按目标 IP 分组
     let outbound: Vec<&Edge> = edges.iter().filter(|e| e.src == node.ip).collect();
-    let count = outbound.len();
-    for (i, edge) in outbound.iter().enumerate() {
-        let connector = if i + 1 < count { "├" } else { "└" };
-        let arrow = build_connection_arrow(edge);
-        let dst_node = all_nodes.iter().find(|n| n.ip == edge.dst);
-        let dst_label = format!("[{}]", edge.dst);
+
+    // 收集所有目标 IP（保持出现顺序，去重）
+    let mut dst_ips: Vec<&str> = Vec::new();
+    for e in &outbound {
+        if !dst_ips.contains(&e.dst.as_str()) {
+            dst_ips.push(&e.dst);
+        }
+    }
+
+    let group_count = dst_ips.len();
+    for (i, dst_ip) in dst_ips.iter().enumerate() {
+        let connector = if i + 1 < group_count { "├" } else { "└" };
+        let dst_node = all_nodes.iter().find(|n| n.ip == *dst_ip);
+        let dst_label = format!("[{}]", dst_ip);
         let dst_hostname = dst_node
             .and_then(|n| n.hostname.as_deref())
             .unwrap_or("")
             .to_string();
+
+        // 该目标的所有连接，格式 "TCP:443(x2) UDP:53"
+        let conn_parts: Vec<String> = outbound
+            .iter()
+            .filter(|e| e.dst == *dst_ip)
+            .map(|e| {
+                if e.count > 1 {
+                    format!("{}:{}(x{})", e.protocol, e.dst_port, e.count)
+                } else {
+                    format!("{}:{}", e.protocol, e.dst_port)
+                }
+            })
+            .collect();
+        let conn_str = conn_parts.join(" ");
+
+        let main_line = format!(
+            "         {}──► {:20}  {:20}  {}",
+            connector, dst_label, dst_hostname, conn_str
+        );
+        println!("{}", truncate(&main_line, 80));
+
+        // 目标节点的开放端口
         let dst_ports = dst_node
             .map(|n| {
                 n.ports
@@ -142,29 +172,13 @@ fn print_node_block(node: &Node, edges: &[Edge], all_nodes: &[Node], is_local: b
                     .join(", ")
             })
             .unwrap_or_default();
-
-        // 80 列截断：connector + arrow + dst_label + hostname
-        let main_line = format!(
-            "         {}{}  {:20}  {}",
-            connector, arrow, dst_label, dst_hostname
-        );
-        println!("{}", truncate(&main_line, 80));
-
         if !dst_ports.is_empty() {
             println!(
                 "         {}       └── 开放端口: {}",
-                if i + 1 < count { "│" } else { " " },
+                if i + 1 < group_count { "│" } else { " " },
                 truncate(&dst_ports, 50)
             );
         }
-    }
-}
-
-fn build_connection_arrow(edge: &Edge) -> String {
-    if edge.protocol == "UDP" {
-        format!("╌╌UDP:{:5}╌╌►", edge.dst_port)
-    } else {
-        format!("──TCP:{:5}──►", edge.dst_port)
     }
 }
 
@@ -749,17 +763,47 @@ fn collect_node_block(
     let hostname_str = node.hostname.as_deref().unwrap_or("").to_string();
     out.push_str(&format!("  {:20}  {}\n", label, hostname_str));
 
+    // 出站连接，按目标 IP 分组
     let outbound: Vec<&Edge> = edges.iter().filter(|e| e.src == node.ip).collect();
-    let count = outbound.len();
-    for (i, edge) in outbound.iter().enumerate() {
-        let connector = if i + 1 < count { "├" } else { "└" };
-        let arrow = build_connection_arrow(edge);
-        let dst_node = all_nodes.iter().find(|n| n.ip == edge.dst);
-        let dst_label = format!("[{}]", edge.dst);
+
+    // 收集所有目标 IP（保持出现顺序，去重）
+    let mut dst_ips: Vec<&str> = Vec::new();
+    for e in &outbound {
+        if !dst_ips.contains(&e.dst.as_str()) {
+            dst_ips.push(&e.dst);
+        }
+    }
+
+    let group_count = dst_ips.len();
+    for (i, dst_ip) in dst_ips.iter().enumerate() {
+        let connector = if i + 1 < group_count { "├" } else { "└" };
+        let dst_node = all_nodes.iter().find(|n| n.ip == *dst_ip);
+        let dst_label = format!("[{}]", dst_ip);
         let dst_hostname = dst_node
             .and_then(|n| n.hostname.as_deref())
             .unwrap_or("")
             .to_string();
+
+        // 该目标的所有连接，格式 "TCP:443(x2) UDP:53"
+        let conn_parts: Vec<String> = outbound
+            .iter()
+            .filter(|e| e.dst == *dst_ip)
+            .map(|e| {
+                if e.count > 1 {
+                    format!("{}:{}(x{})", e.protocol, e.dst_port, e.count)
+                } else {
+                    format!("{}:{}", e.protocol, e.dst_port)
+                }
+            })
+            .collect();
+        let conn_str = conn_parts.join(" ");
+
+        let main_line = format!(
+            "         {}──► {:20}  {:20}  {}",
+            connector, dst_label, dst_hostname, conn_str
+        );
+        out.push_str(&format!("{}\n", truncate(&main_line, 80)));
+
         let dst_ports = dst_node
             .map(|n| {
                 n.ports
@@ -769,15 +813,10 @@ fn collect_node_block(
                     .join(", ")
             })
             .unwrap_or_default();
-        let main_line = format!(
-            "         {}{}  {:20}  {}",
-            connector, arrow, dst_label, dst_hostname
-        );
-        out.push_str(&format!("{}\n", truncate(&main_line, 80)));
         if !dst_ports.is_empty() {
             out.push_str(&format!(
                 "         {}       └── 开放端口: {}\n",
-                if i + 1 < count { "│" } else { " " },
+                if i + 1 < group_count { "│" } else { " " },
                 truncate(&dst_ports, 50)
             ));
         }

@@ -11,9 +11,12 @@ use std::time::Instant;
 /// * `nodes`    — 扫描到的节点列表
 /// * `edges`    — 连接列表（可能有重复）
 /// * `local_ip` — 本机 IP（用于标记本机节点）
-pub fn build_graph(mut nodes: Vec<Node>, edges: Vec<Edge>, local_ip: &str) -> Graph {
+pub fn build_graph(nodes: Vec<Node>, edges: Vec<Edge>, local_ip: &str) -> Graph {
     let start = Instant::now();
     let captured_at = Utc::now().to_rfc3339();
+
+    // 先对 nodes 按 IP 去重合并（保留最完整信息）
+    let mut nodes = dedup_nodes(nodes);
 
     // 去重合并 edges：相同 (src, dst, protocol, dst_port) 的连接累加 count
     let deduped_edges = dedup_edges(edges);
@@ -108,6 +111,35 @@ fn dedup_edges(edges: Vec<Edge>) -> Vec<Edge> {
             .then(a.dst_port.cmp(&b.dst_port))
     });
     result
+}
+
+/// 去重合并：相同 IP 的节点合并为一个，保留最完整的字段信息
+fn dedup_nodes(nodes: Vec<Node>) -> Vec<Node> {
+    let mut map: HashMap<String, Node> = HashMap::new();
+    for node in nodes {
+        map.entry(node.ip.clone())
+            .and_modify(|existing| {
+                if node.is_local {
+                    existing.is_local = true;
+                }
+                if node.hostname.is_some() && existing.hostname.is_none() {
+                    existing.hostname = node.hostname.clone();
+                }
+                if node.mac.is_some() && existing.mac.is_none() {
+                    existing.mac = node.mac.clone();
+                }
+                if node.interface.is_some() && existing.interface.is_none() {
+                    existing.interface = node.interface.clone();
+                }
+                for &p in &node.ports {
+                    if !existing.ports.contains(&p) {
+                        existing.ports.push(p);
+                    }
+                }
+            })
+            .or_insert(node);
+    }
+    map.into_values().collect()
 }
 
 /// 按 `--min-connections` 过滤节点

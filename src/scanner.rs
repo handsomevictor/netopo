@@ -191,6 +191,17 @@ async fn reverse_lookup(ip: IpAddr) -> Option<String> {
         .flatten()
 }
 
+/// 为图中所有没有 hostname 的节点做反向 DNS 解析（异步，批量）
+pub async fn enrich_hostnames(nodes: &mut [Node]) {
+    for node in nodes.iter_mut() {
+        if node.hostname.is_none() {
+            if let Ok(ip) = node.ip.parse::<std::net::IpAddr>() {
+                node.hostname = reverse_lookup(ip).await;
+            }
+        }
+    }
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // 辅助：将本机接口 IP 转换为子网 CIDR（供自动检测时使用）
 // ──────────────────────────────────────────────────────────────────────────────
@@ -227,6 +238,49 @@ pub fn local_ip() -> Option<String> {
             }
         }
     }
+    None
+}
+
+/// 检测默认网关 IP（路由器地址）
+/// macOS: 解析 `route -n get default` 的 "gateway:" 行
+/// Linux: 解析 `ip route show default` 的 "via" token
+pub fn detect_default_gateway() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("route")
+            .args(["-n", "get", "default"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&out.stdout);
+            for line in text.lines() {
+                let line = line.trim();
+                if line.starts_with("gateway:") {
+                    if let Some(gw) = line.split_once(':').map(|x| x.1.trim().to_string()) {
+                        if gw != "link#" && !gw.is_empty() {
+                            return Some(gw);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(out) = std::process::Command::new("ip")
+            .args(["route", "show", "default"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let tokens: Vec<&str> = text.split_whitespace().collect();
+            for pair in tokens.windows(2) {
+                if pair[0] == "via" {
+                    return Some(pair[1].to_string());
+                }
+            }
+        }
+    }
+
     None
 }
 
