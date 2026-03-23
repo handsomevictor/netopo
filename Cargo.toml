@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Local network topology mapper — scan devices, track connections, visualize graphs"
 license = "MIT"
-repository = "https://github.com/yourusername/netopo"
+repository = "https://github.com/handsomevictor/netopo"
 keywords = ["network", "topology", "scanner", "cli", "tui"]
 categories = ["command-line-utilities", "network-programming"]
 

@@ -9,7 +9,7 @@
 ### 从源码编译（推荐）
 
 ```bash
-git clone https://github.com/yourusername/netopo
+git clone https://github.com/handsomevictor/netopo
 cd netopo
 cargo build --release
 # 二进制位于 target/release/netopo
