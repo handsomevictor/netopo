@@ -1,0 +1,6 @@
+/target
+Cargo.lock
+*.log
+.DS_Store
+reports/test_fail_evidence_*.md
+reports/coverage_*.md

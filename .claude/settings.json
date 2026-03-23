@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "MultiEdit(*)",
+      "NotebookRead(*)",
+      "NotebookEdit(*)",
+      "WebFetch(*)",
+      "TodoRead(*)",
+      "TodoWrite(*)"
+    ],
+    "deny": []
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/post_write.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
