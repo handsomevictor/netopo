@@ -24,6 +24,8 @@ crossterm = "0.27"
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 thiserror = "1"
+dns-lookup = "2"
+ipnet = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = "0.16"
