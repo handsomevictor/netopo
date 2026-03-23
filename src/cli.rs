@@ -13,75 +13,75 @@ use clap::Parser;
 pub struct Cli {
     // ── 扫描选项 ──────────────────────────────────────────────────────────────
     /// 扫描局域网设备（自动检测主接口子网）
-    #[arg(long)]
+    #[arg(long, help_heading = "扫描选项")]
     pub scan: bool,
 
     /// 指定扫描网段，如 10.0.0.0/24
-    #[arg(long, value_name = "CIDR")]
+    #[arg(long, value_name = "CIDR", help_heading = "扫描选项")]
     pub subnet: Option<String>,
 
     /// 指定端口，如 "22,80,443" 或 "1-1024"
-    #[arg(long, value_name = "LIST")]
+    #[arg(long, value_name = "LIST", help_heading = "扫描选项")]
     pub ports: Option<String>,
 
     /// 并发连接数，默认 256
-    #[arg(long, value_name = "N", default_value = "256")]
+    #[arg(long, value_name = "N", default_value = "256", help_heading = "扫描选项")]
     pub concurrency: usize,
 
     /// 单连接超时毫秒，默认 500
-    #[arg(long, value_name = "MS", default_value = "500")]
+    #[arg(long, value_name = "MS", default_value = "500", help_heading = "扫描选项")]
     pub timeout: u64,
 
     // ── 连接选项 ──────────────────────────────────────────────────────────────
     /// 获取当前 TCP/UDP 连接快照
-    #[arg(long)]
+    #[arg(long, help_heading = "连接选项")]
     pub connections: bool,
 
     /// 只显示局域网内连接
-    #[arg(long)]
+    #[arg(long, help_heading = "连接选项")]
     pub local_only: bool,
 
     /// 排除 loopback 连接
-    #[arg(long)]
+    #[arg(long, help_heading = "连接选项")]
     pub exclude_loopback: bool,
 
     /// 每 N 秒刷新，默认 5
-    #[arg(long, value_name = "SECONDS")]
+    #[arg(long, value_name = "SECONDS", help_heading = "连接选项")]
     pub watch: Option<u64>,
 
     // ── 图构建 ────────────────────────────────────────────────────────────────
     /// 构建拓扑图
-    #[arg(long)]
+    #[arg(long, help_heading = "图构建")]
     pub graph: bool,
 
     /// 只显示连接数 >= N 的节点
-    #[arg(long, value_name = "N")]
+    #[arg(long, value_name = "N", help_heading = "图构建")]
     pub min_connections: Option<u32>,
 
     // ── 输出格式 ──────────────────────────────────────────────────────────────
     /// 输出 JSON 文件
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", help_heading = "输出格式")]
     pub output_json: Option<String>,
 
     /// 输出 Graphviz dot 文件
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", help_heading = "输出格式")]
     pub output_dot: Option<String>,
 
     /// 终端打印 ASCII 拓扑图
-    #[arg(long)]
+    #[arg(long, help_heading = "输出格式")]
     pub ascii: bool,
 
     /// 启动 TUI 交互界面
-    #[arg(long)]
+    #[arg(long, help_heading = "输出格式")]
     pub tui: bool,
 
     // ── 通用 ──────────────────────────────────────────────────────────────────
     /// 详细输出
-    #[arg(short, long)]
+    #[arg(short, long, help_heading = "通用")]
     pub verbose: bool,
 
     /// 静默模式
-    #[arg(short, long)]
+    #[arg(short, long, help_heading = "通用")]
     pub quiet: bool,
 }
 
