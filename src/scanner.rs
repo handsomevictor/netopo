@@ -423,4 +423,154 @@ mod tests {
         let ips = cidr_to_host_ips("10.0.0.0/16").unwrap();
         assert_eq!(ips.len(), 65534, "A /16 should have 65534 host addresses");
     }
+
+    // ── cidr_to_host_ips 边界测试（新增）────────────────────────────────────
+
+    #[test]
+    fn test_cidr_slash30_host_addresses() {
+        // /30 只有 2 个可用主机地址
+        let ips = cidr_to_host_ips("192.168.1.0/30").unwrap();
+        assert_eq!(ips.len(), 2, "/30 should have exactly 2 host addresses");
+        let expected_1: IpAddr = "192.168.1.1".parse().unwrap();
+        let expected_2: IpAddr = "192.168.1.2".parse().unwrap();
+        assert!(ips.contains(&expected_1), "should contain 192.168.1.1");
+        assert!(ips.contains(&expected_2), "should contain 192.168.1.2");
+    }
+
+    #[test]
+    fn test_cidr_slash32_single_host() {
+        // /32 是单主机地址，ipnet::hosts() 返回该地址本身
+        let ips = cidr_to_host_ips("10.0.0.0/32").unwrap();
+        assert_eq!(ips.len(), 1, "/32 should have exactly 1 address");
+        let expected: IpAddr = "10.0.0.0".parse().unwrap();
+        assert_eq!(ips[0], expected);
+    }
+
+    #[test]
+    fn test_cidr_invalid_string_returns_error() {
+        assert!(
+            cidr_to_host_ips("invalid").is_err(),
+            "plain string 'invalid' should return Err"
+        );
+    }
+
+    #[test]
+    fn test_cidr_slash31_has_2_hosts() {
+        // /31 按 RFC 3021 有 2 个地址（point-to-point link）
+        let ips = cidr_to_host_ips("10.0.0.0/31").unwrap();
+        assert_eq!(ips.len(), 2, "/31 should have 2 addresses");
+    }
+
+    // ── parse_ports 边界测试（新增）─────────────────────────────────────────
+
+    #[test]
+    fn test_parse_ports_mixed_comma_and_range() {
+        // "22,80,1-3" → [22, 80, 1, 2, 3]
+        let ports = parse_ports("22,80,1-3").unwrap();
+        assert_eq!(ports, vec![22, 80, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_parse_ports_empty_string_returns_error() {
+        // 空字符串无法解析为有效端口号，应返回 Err
+        assert!(
+            parse_ports("").is_err(),
+            "empty string should return Err (not a valid port)"
+        );
+    }
+
+    #[test]
+    fn test_parse_ports_65536_out_of_range() {
+        // 65536 超出合法端口范围 0-65535，应返回 Err
+        assert!(
+            parse_ports("65536").is_err(),
+            "port 65536 is out of range and should return Err"
+        );
+    }
+
+    #[test]
+    fn test_parse_ports_65535_valid() {
+        // 65535 是合法端口上限
+        let ports = parse_ports("65535").unwrap();
+        assert_eq!(ports, vec![65535]);
+    }
+
+    #[test]
+    fn test_parse_ports_range_1_to_5() {
+        // "1-5" → [1,2,3,4,5]
+        let ports = parse_ports("1-5").unwrap();
+        assert_eq!(ports, vec![1, 2, 3, 4, 5]);
+    }
+
+    // ── detect_primary_interface 字符串解析逻辑测试 ──────────────────────────
+
+    /// 验证 macOS "route -n get default" 输出中 "interface:" 行的解析逻辑
+    #[test]
+    fn test_detect_primary_interface_macos_line_parsing() {
+        // 模拟 macOS route 命令输出格式
+        let fixture = "\
+   route to: default\n\
+destination: default\n\
+       mask: default\n\
+    gateway: 192.168.1.1\n\
+  interface: en0\n\
+      flags: <UP,GATEWAY,DONE,STATIC,PRCLONING,GLOBAL>\n\
+ recvpipe  sendpipe  ssthresh  rtt,msec    rttvar  hopcount      mtu     expire\n\
+       0         0         0         0         0         0      1500         0\n";
+
+        let mut found_iface: Option<String> = None;
+        for line in fixture.lines() {
+            let line = line.trim();
+            if line.starts_with("interface:") {
+                found_iface = line.split_once(':').map(|x| x.1.trim().to_string());
+            }
+        }
+        assert_eq!(found_iface.as_deref(), Some("en0"));
+    }
+
+    /// 验证 Linux "ip route show default" 输出中 "dev" token 后接口名的解析逻辑
+    #[test]
+    fn test_detect_primary_interface_linux_line_parsing() {
+        // 模拟 Linux ip route 输出格式
+        let fixture = "default via 192.168.1.1 dev eth0 proto dhcp src 192.168.1.100 metric 100\n";
+
+        let mut found_iface: Option<String> = None;
+        let tokens: Vec<&str> = fixture.split_whitespace().collect();
+        for pair in tokens.windows(2) {
+            if pair[0] == "dev" {
+                found_iface = Some(pair[1].to_string());
+                break;
+            }
+        }
+        assert_eq!(found_iface.as_deref(), Some("eth0"));
+    }
+
+    /// 验证当 interface: 行不存在时返回 None
+    #[test]
+    fn test_detect_primary_interface_macos_missing_interface_line() {
+        let fixture = "route to: default\ngateway: 192.168.1.1\n";
+        let mut found_iface: Option<String> = None;
+        for line in fixture.lines() {
+            let line = line.trim();
+            if line.starts_with("interface:") {
+                found_iface = line.split_once(':').map(|x| x.1.trim().to_string());
+            }
+        }
+        assert!(found_iface.is_none());
+    }
+
+    /// 验证 Linux 输出中没有 "dev" token 时返回 None
+    #[test]
+    fn test_detect_primary_interface_linux_no_dev_token() {
+        let fixture = "default via 192.168.1.1 proto dhcp\n";
+        let mut found_iface: Option<String> = None;
+        let tokens: Vec<&str> = fixture.split_whitespace().collect();
+        for pair in tokens.windows(2) {
+            if pair[0] == "dev" {
+                found_iface = Some(pair[1].to_string());
+                break;
+            }
+        }
+        assert!(found_iface.is_none());
+    }
 }

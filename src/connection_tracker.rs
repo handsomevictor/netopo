@@ -686,6 +686,213 @@ udp4       0      0  *.5353                 *.*
         assert!(edges.iter().all(|e| e.protocol == "TCP"));
     }
 
+    // ── 边界测试：空输入 / 只有 header / 过滤行为 ────────────────────────────
+
+    #[test]
+    fn test_parse_netstat_output_empty_string() {
+        // 完全空字符串 → 空 Vec
+        let edges = test_parse_netstat_output("", "TCP");
+        assert!(
+            edges.is_empty(),
+            "empty netstat output should produce empty Vec"
+        );
+    }
+
+    #[test]
+    fn test_parse_netstat_output_header_only() {
+        // 只有 header 行（没有数据行）→ 空 Vec
+        let header_only = "Active Internet connections (including servers)\n\
+Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)\n";
+        let edges = test_parse_netstat_output(header_only, "TCP");
+        assert!(
+            edges.is_empty(),
+            "header-only netstat output should produce empty Vec"
+        );
+    }
+
+    #[test]
+    fn test_parse_proc_net_tcp_empty_string() {
+        // 完全空字符串 → 空 Vec（skip(1) 跳过 header 后无数据）
+        let edges = test_parse_proc_net_tcp("");
+        assert!(
+            edges.is_empty(),
+            "empty /proc/net/tcp content should produce empty Vec"
+        );
+    }
+
+    #[test]
+    fn test_parse_proc_net_tcp_header_only() {
+        // 只有 header 行 → 空 Vec
+        let header_only =
+            "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n";
+        let edges = test_parse_proc_net_tcp(header_only);
+        assert!(
+            edges.is_empty(),
+            "header-only /proc/net/tcp content should produce empty Vec"
+        );
+    }
+
+    #[test]
+    fn test_should_include_local_only_filters_public_ip() {
+        use crate::data_manager::Edge;
+        // 公网 IP (8.8.8.8) 在 local_only=true 时应被过滤掉
+        let public_edge = Edge {
+            src: "192.168.1.100".to_string(),
+            dst: "8.8.8.8".to_string(),
+            protocol: "TCP".to_string(),
+            src_port: 54321,
+            dst_port: 443,
+            state: Some("ESTABLISHED".to_string()),
+            count: 1,
+        };
+        assert!(
+            !should_include(&public_edge, true, false),
+            "public IP 8.8.8.8 should be filtered when local_only=true"
+        );
+    }
+
+    #[test]
+    fn test_should_include_local_only_keeps_private_192_168() {
+        use crate::data_manager::Edge;
+        // 192.168.x.x 是私有地址，local_only=true 时应保留
+        let private_edge = Edge {
+            src: "192.168.1.100".to_string(),
+            dst: "192.168.1.1".to_string(),
+            protocol: "TCP".to_string(),
+            src_port: 54321,
+            dst_port: 80,
+            state: Some("ESTABLISHED".to_string()),
+            count: 1,
+        };
+        assert!(
+            should_include(&private_edge, true, false),
+            "192.168.x.x should be kept when local_only=true"
+        );
+    }
+
+    #[test]
+    fn test_should_include_exclude_loopback_filters_127() {
+        use crate::data_manager::Edge;
+        // 127.0.0.1 在 exclude_loopback=true 时应被过滤
+        let loopback_edge = Edge {
+            src: "127.0.0.1".to_string(),
+            dst: "127.0.0.1".to_string(),
+            protocol: "TCP".to_string(),
+            src_port: 12345,
+            dst_port: 5432,
+            state: Some("ESTABLISHED".to_string()),
+            count: 1,
+        };
+        assert!(
+            !should_include(&loopback_edge, false, true),
+            "127.0.0.1 connections should be filtered when exclude_loopback=true"
+        );
+    }
+
+    #[test]
+    fn test_should_include_exclude_loopback_keeps_public() {
+        use crate::data_manager::Edge;
+        // 非 loopback 地址在 exclude_loopback=true 时应保留
+        let public_edge = Edge {
+            src: "192.168.1.100".to_string(),
+            dst: "8.8.8.8".to_string(),
+            protocol: "UDP".to_string(),
+            src_port: 63412,
+            dst_port: 53,
+            state: None,
+            count: 1,
+        };
+        assert!(
+            should_include(&public_edge, false, true),
+            "non-loopback edge should be kept when exclude_loopback=true"
+        );
+    }
+
+    #[test]
+    fn test_should_include_local_only_and_exclude_loopback_combined() {
+        use crate::data_manager::Edge;
+        // 同时启用两个过滤：公网 IP 应被 local_only 过滤掉
+        let public_edge = Edge {
+            src: "192.168.1.100".to_string(),
+            dst: "1.1.1.1".to_string(),
+            protocol: "TCP".to_string(),
+            src_port: 54321,
+            dst_port: 443,
+            state: Some("ESTABLISHED".to_string()),
+            count: 1,
+        };
+        assert!(
+            !should_include(&public_edge, true, true),
+            "public IP 1.1.1.1 should be filtered with both filters enabled"
+        );
+    }
+
+    #[test]
+    fn test_should_include_local_only_and_exclude_loopback_keeps_private() {
+        use crate::data_manager::Edge;
+        // 私有地址、非 loopback：两个过滤都启用时应保留
+        let private_edge = Edge {
+            src: "10.0.0.1".to_string(),
+            dst: "10.0.0.2".to_string(),
+            protocol: "TCP".to_string(),
+            src_port: 8080,
+            dst_port: 9090,
+            state: Some("ESTABLISHED".to_string()),
+            count: 1,
+        };
+        assert!(
+            should_include(&private_edge, true, true),
+            "private IP 10.x.x.x should be kept with both filters enabled"
+        );
+    }
+
+    #[test]
+    fn test_parse_netstat_output_filters_applied() {
+        // 验证解析后再过滤的组合行为：公网 IP 连接应被 local_only 过滤
+        let fixture = "Active Internet connections\n\
+Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)\n\
+tcp4       0      0  192.168.1.100.55231    192.168.1.1.443        ESTABLISHED\n\
+tcp4       0      0  192.168.1.100.55232    8.8.8.8.443            ESTABLISHED\n";
+
+        let all_edges = test_parse_netstat_output(fixture, "TCP");
+        assert_eq!(all_edges.len(), 2, "should parse 2 edges before filtering");
+
+        let filtered: Vec<_> = all_edges
+            .into_iter()
+            .filter(|e| should_include(e, true, false))
+            .collect();
+        assert_eq!(
+            filtered.len(),
+            1,
+            "only 1 edge should remain after local_only filter"
+        );
+        assert_eq!(
+            filtered[0].dst, "192.168.1.1",
+            "kept edge should point to private IP"
+        );
+    }
+
+    #[test]
+    fn test_parse_netstat_output_loopback_filter_applied() {
+        // 127.0.0.1 连接在 exclude_loopback=true 时应被过滤
+        let fixture = "Active Internet connections\n\
+Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)\n\
+tcp4       0      0  127.0.0.1.3306         127.0.0.1.55100        ESTABLISHED\n\
+tcp4       0      0  192.168.1.100.55231    192.168.1.1.443        ESTABLISHED\n";
+
+        let all_edges = test_parse_netstat_output(fixture, "TCP");
+        let filtered: Vec<_> = all_edges
+            .into_iter()
+            .filter(|e| should_include(e, false, true))
+            .collect();
+        assert_eq!(
+            filtered.len(),
+            1,
+            "loopback edge should be filtered out when exclude_loopback=true"
+        );
+        assert_eq!(filtered[0].dst, "192.168.1.1");
+    }
+
     // ── 原有平台专属测试（保留） ─────────────────────────────────────────────
 
     #[cfg(target_os = "macos")]

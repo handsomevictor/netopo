@@ -1,6 +1,6 @@
 # Progress
 
-## 当前迭代轮次: 2
+## 当前迭代轮次: 3
 ## 最后 Arbiter 裁决: NONE
 
 ## 模块状态
@@ -61,3 +61,35 @@
 - 运行 `cargo clippy -- -D warnings` 消除所有 warning
 - 实现 TUI `r` 键的真正重新扫描
 - 补充各模块单元测试至覆盖率要求
+
+---
+
+### 轮次 2（2026-03-23）
+
+**完成工作：**
+
+1. **缺陷修复：** 修复 NB1-3（TUI 焦点无视觉区分、watch 模式逻辑混入 main、Semaphore acquire 错误处理），对应 `lesson_learned.md` 问题 5–6。
+
+2. **测试补充（cli.rs）：** 新增 44 个 cli.rs 单元测试，涵盖端口解析边界情况、全部 CLI 标志组合及冲突检测，测试总数从 93 增至 137。
+
+3. **文档：** 更新 docs/tutorial.md（TUI 焦点黄色边框说明、连接详情颜色说明）、docs/lesson_learned.md（新增问题 5–6）、docs/progress.md（本节）。
+
+**关键 commit：** `58f06de`
+
+**已知遗留问题：**
+- TUI `r` 刷新键仍为 stub 实现
+- scanner.rs / connection_tracker.rs 测试覆盖率未达 70% 目标
+
+**下一轮重点：**
+- 提升 scanner.rs 和 connection_tracker.rs 测试覆盖率
+- 更新相关文档
+
+---
+
+### 轮次 3（进行中，2026-03-23）
+
+**进行中工作：**
+
+1. **测试覆盖率提升：** 补充 scanner.rs 和 connection_tracker.rs 单元测试，目标各模块覆盖率达到 70% 以上。
+
+2. **文档更新：** 更新 docs/tutorial.md、docs/lesson_learned.md、docs/progress.md 以反映轮次 2 的全部变更（本次操作）。
