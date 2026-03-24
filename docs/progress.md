@@ -1,111 +1,111 @@
 # Progress
 
-## 当前迭代轮次: 3
-## 最后 Arbiter 裁决: SHIP_IT（轮次3+hotfix，2026-03-23）
+## Current iteration: 4
+## Last arbiter verdict: SHIP_IT (iteration 3 + hotfix, 2026-03-23)
 
-## 模块状态
+## Module status
 
-| 模块 | 状态 | 说明 |
-|------|------|------|
-| cli.rs | 已实现 | 全部 CLI 参数定义完成，端口解析支持逗号和范围格式 |
-| data_manager.rs | 已实现 | Node/Edge/Graph/GraphSummary 类型定义，serde 序列化 |
-| scanner.rs | 已实现 | F1 网卡枚举（macOS/Linux）、F2 子网扫描含 DNS 反解析 |
-| connection_tracker.rs | 已实现 | F3 macOS（netstat 解析）和 Linux（/proc/net 解析）均实现 |
-| graph_builder.rs | 已实现 | F4 petgraph 构建、去重合并、min-connections 过滤 |
-| visualization.rs | 已实现 | F5 JSON、F6 dot、F7 ASCII、F8 TUI 全部实现 |
-| main.rs | 已实现 | 参数组装、执行流程、watch 模式 |
+| Module | Status | Notes |
+|--------|--------|-------|
+| cli.rs | Implemented | All CLI parameters defined; port parsing supports comma and range formats |
+| data_manager.rs | Implemented | Node/Edge/Graph/GraphSummary type definitions with serde serialization |
+| scanner.rs | Implemented | F1 interface enumeration (macOS/Linux), F2 subnet scanning with DNS reverse lookup |
+| connection_tracker.rs | Implemented | F3 implemented for macOS (netstat parsing) and Linux (/proc/net parsing) |
+| graph_builder.rs | Implemented | F4 petgraph construction, deduplication/merging, min-connections filtering |
+| visualization.rs | Implemented | F5 JSON, F6 dot, F7 ASCII, F8 TUI — all output formats complete |
+| main.rs | Implemented | Argument dispatch, execution flow, watch mode |
 
-## 待解决问题
+## Open issues
 
-| 编号 | 描述 | 优先级 |
-|------|------|--------|
-| TODO-01 | Windows 平台连接追踪未实现（运行时报错） | 中 |
-
----
-
-## 迭代历史
-
-### 轮次 1（2026-03-23）
-
-**完成工作：**
-
-1. **项目脚手架搭建：** 初始化 Git 仓库，建立 `src/` 模块结构，配置 `Cargo.toml` 依赖（clap、serde、tokio、petgraph、pnet、ratatui、crossterm、chrono、anyhow、thiserror、dns-lookup）。
-
-2. **数据层（data_manager.rs）：** 实现 `Node`、`Edge`、`Graph`、`GraphSummary` 四个核心类型，全部支持 serde 序列化/反序列化。
-
-3. **CLI 层（cli.rs）：** 用 clap derive 宏定义全部 15 个 CLI 参数，实现 `parse_ports()` 支持逗号和范围两种端口格式。
-
-4. **扫描层（scanner.rs）：** 实现 F1（`scan_interfaces`、`detect_primary_interface`）和 F2（`scan_subnet`、`probe_host`、`reverse_lookup`），支持 macOS 和 Linux 主接口检测，async 并发扫描配 Semaphore 限流。
-
-5. **连接追踪（connection_tracker.rs）：** 实现 F3，macOS 通过 netstat 文本解析，Linux 通过 `/proc/net/tcp` 十六进制地址解析，包含 `local_only` 和 `exclude_loopback` 过滤逻辑，附带两平台单元测试。
-
-6. **图构建（graph_builder.rs）：** 实现 F4，`build_graph` 做节点标记和占位补全，`dedup_edges` 去重合并，`filter_by_min_connections` 节点过滤，包含单元测试。
-
-7. **可视化（visualization.rs）：** 实现 F5（JSON 输出）、F6（dot 文件生成）、F7（ASCII 拓扑图）、F8（ratatui TUI，含四区域布局、7 个交互键、颜色方案、帮助覆盖层）。
-
-8. **入口（main.rs）：** 组装各模块，实现完整执行流程和 watch 模式循环。
-
-9. **文档：** 更新 README.md、docs/tutorial.md、docs/structure.md、docs/lesson_learned.md、docs/progress.md（本文件）。
-
-**已知遗留问题：**
-- TUI `r` 刷新键为 stub 实现，后续需用 mpsc 通道解耦扫描和渲染
-- Windows 平台连接追踪待实现
-- 测试覆盖率尚未达到各模块 70% 的目标
-
-**下一轮重点：**
-- 运行 `cargo test --all` 验证全部通过
-- 运行 `cargo clippy -- -D warnings` 消除所有 warning
-- 实现 TUI `r` 键的真正重新扫描
-- 补充各模块单元测试至覆盖率要求
+| ID | Description | Priority |
+|----|-------------|----------|
+| TODO-01 | Windows platform connection tracking not implemented (runtime error) | Medium |
 
 ---
 
-### 轮次 2（2026-03-23）
+## Iteration history
 
-**完成工作：**
+### Iteration 1 (2026-03-23)
 
-1. **缺陷修复：** 修复 NB1-3（TUI 焦点无视觉区分、watch 模式逻辑混入 main、Semaphore acquire 错误处理），对应 `lesson_learned.md` 问题 5–6。
+**Completed work:**
 
-2. **测试补充（cli.rs）：** 新增 44 个 cli.rs 单元测试，涵盖端口解析边界情况、全部 CLI 标志组合及冲突检测，测试总数从 93 增至 137。
+1. **Project scaffolding:** Initialized Git repository, established `src/` module structure, configured `Cargo.toml` dependencies (clap, serde, tokio, petgraph, pnet, ratatui, crossterm, chrono, anyhow, thiserror, dns-lookup).
 
-3. **文档：** 更新 docs/tutorial.md（TUI 焦点黄色边框说明、连接详情颜色说明）、docs/lesson_learned.md（新增问题 5–6）、docs/progress.md（本节）。
+2. **Data layer (data_manager.rs):** Implemented `Node`, `Edge`, `Graph`, and `GraphSummary` core types, all with serde serialization/deserialization support.
 
-**关键 commit：** `58f06de`
+3. **CLI layer (cli.rs):** Defined all 15 CLI parameters using clap derive macros; implemented `parse_ports()` supporting both comma-separated and range port formats.
 
-**已知遗留问题：**
-- TUI `r` 刷新键仍为 stub 实现
-- scanner.rs / connection_tracker.rs 测试覆盖率未达 70% 目标
+4. **Scanner (scanner.rs):** Implemented F1 (`scan_interfaces`, `detect_primary_interface`) and F2 (`scan_subnet`, `probe_host`, `reverse_lookup`), supporting primary interface detection on macOS and Linux; async concurrent scanning with Semaphore rate-limiting.
 
-**下一轮重点：**
-- 提升 scanner.rs 和 connection_tracker.rs 测试覆盖率
-- 更新相关文档
+5. **Connection tracker (connection_tracker.rs):** Implemented F3 — macOS via netstat text parsing, Linux via `/proc/net/tcp` hex address parsing — including `local_only` and `exclude_loopback` filters, with unit tests for both platforms.
+
+6. **Graph builder (graph_builder.rs):** Implemented F4 — `build_graph` with node marking and placeholder creation, `dedup_edges` for deduplication and count merging, `filter_by_min_connections` for node filtering, with unit tests.
+
+7. **Visualization (visualization.rs):** Implemented F5 (JSON output), F6 (dot file generation), F7 (ASCII topology), F8 (ratatui TUI with four-region layout, 7 keyboard shortcuts, color scheme, and help overlay).
+
+8. **Entry point (main.rs):** Assembled all modules, implemented full execution flow and watch mode loop.
+
+9. **Documentation:** Updated README.md, docs/tutorial.md, docs/structure.md, docs/lesson_learned.md, docs/progress.md.
+
+**Known issues at end of iteration:**
+- TUI `r` refresh key was a stub; a real rescan requires mpsc channel decoupling
+- Windows platform connection tracking not implemented
+- Test coverage had not yet reached the 70% per-module target
+
+**Next iteration focus:**
+- Run `cargo test --all` and ensure all tests pass
+- Run `cargo clippy -- -D warnings` and eliminate all warnings
+- Implement real rescan for TUI `r` key
+- Add unit tests to reach coverage target
 
 ---
 
-### 轮次 3（2026-03-23）
+### Iteration 2 (2026-03-23)
 
-**完成工作：**
+**Completed work:**
 
-1. **CI 修复：** 修复 Linux 并行测试中临时文件名冲突导致的 exit 101，引入 `unique_tmp()` 辅助函数（AtomicU32 + 进程 ID）。
-2. **ASCII 输出重设计：** 完整重构 F7，局域网/公网分组、ISP 聚合、底部摘要（问题 8）。
-3. **全部 B 级 blocker 修复：** TUI `r` 刷新键真正重新扫描（block_in_place）、Linux decode_tcp_state 大小写问题、裸 unwrap 消除。
+1. **Bug fixes:** Fixed issues NB1–3 (TUI focus with no visual differentiation, watch mode logic in main, Semaphore acquire error handling), documented in `lesson_learned.md` as issues 5–6.
 
-**关键 commits：** `c9f7cae`、`60ccb06`
+2. **Test additions (cli.rs):** Added 44 new unit tests for cli.rs, covering port parsing edge cases, all CLI flag combinations, and conflict detection. Total test count increased from 93 to 137.
+
+3. **Documentation:** Updated docs/tutorial.md (TUI focus yellow border, connection detail color documentation), docs/lesson_learned.md (added issues 5–6), docs/progress.md (this section).
+
+**Key commit:** `58f06de`
+
+**Known issues at end of iteration:**
+- TUI `r` refresh key still a stub
+- scanner.rs / connection_tracker.rs test coverage had not reached 70% target
+
+**Next iteration focus:**
+- Improve scanner.rs and connection_tracker.rs test coverage
+- Update related documentation
 
 ---
 
-### 轮次 4（2026-03-24）
+### Iteration 3 (2026-03-23)
 
-**完成工作：**
+**Completed work:**
 
-1. **ANSI 颜色输出：** 本机节点亮蓝粗体、LAN 设备绿色、ISP 标签黄色粗体、TCP 端口青色、UDP 端口黄色、分隔符深灰；isatty 自动检测。
-2. **MaxMind GeoLite2-ASN 集成：** 添加 `maxminddb` crate，`--update-ip-db` 下载到 `~/.config/netopo/GeoLite2-ASN.mmdb`，对"其他"分组 IP 做 ASN 组织名查询。
-3. **硬编码 ISP 规则扩展：** Cloudflare 补充 104.18/172.64 前缀；新增 Canonical/Microsoft/Fastly/Meta。
-4. **新 CLI 参数：** `--resolve-ports`（端口号→服务名）、`--filter <keyword>`（按 ISP/IP 过滤）、`--all-connections`（不限每组条数）、`--update-ip-db`。
-5. **ISP 分组上限：** 默认每组最多 10 条，超出提示 `--all-connections`，不再对 Akamai 特殊聚合。
-6. **标题框重设计：** 固定 44 列，内容按视觉宽度居中（CJK 2 列），时间格式 `YYYY-MM-DD HH:MM`。
-7. **IPv6 本地地址修复：** `is_lan_ip()` 新增 `::1`、`fe80::`、`fc/fd` 前缀识别，修复 link-local 地址误入公网区的问题。
-8. **空连接信息修复：** 公网连接区 `fmt_conns_ex` 改为不过滤 src，显示所有入向连接。
-9. **文档同步：** README 新增 ISP 分类说明、MaxMind DB 路径和下载方式、完整 CLI 参数表；lesson_learned.md 修复 ASCII 图对齐问题并更新设计决策。
+1. **CI fix:** Fixed Linux parallel test failure caused by temporary file name collisions (exit 101), introduced `unique_tmp()` helper using AtomicU32 + process ID.
+2. **ASCII output redesign:** Completely rebuilt F7 with LAN/internet grouping, ISP aggregation, and bottom summary line (issue 8).
+3. **All class-B blocker fixes:** TUI `r` key now triggers a real rescan (using `block_in_place`); fixed Linux `decode_tcp_state` case sensitivity issue; eliminated all bare `unwrap()` calls.
 
-**关键 commits：** `8b9fcd9`、`037f025`
+**Key commits:** `c9f7cae`, `60ccb06`
+
+---
+
+### Iteration 4 (2026-03-24)
+
+**Completed work:**
+
+1. **ANSI color output:** Local node bright blue bold, LAN devices green, ISP labels yellow bold, TCP ports cyan, UDP ports yellow, separators dark gray; isatty auto-detection.
+2. **MaxMind GeoLite2-ASN integration:** Added `maxminddb` crate; `--update-ip-db` downloads to `~/.config/netopo/GeoLite2-ASN.mmdb`; "Other" group IPs are resolved to ASN organization names.
+3. **Hardcoded ISP rule expansion:** Added Cloudflare 104.18/172.64 prefixes; added Canonical, Microsoft, Fastly, Meta.
+4. **New CLI parameters:** `--resolve-ports` (port number to service name), `--filter <keyword>` (filter by ISP or IP), `--all-connections` (no per-group limit), `--update-ip-db`.
+5. **ISP group limit:** Default max 10 entries per group; overflow prompts `--all-connections`; removed special Akamai aggregation.
+6. **Title box redesign:** Fixed at 44 columns; content centered by visual width (CJK = 2 columns); timestamp format `YYYY-MM-DD HH:MM`.
+7. **IPv6 local address fix:** `is_lan_ip()` now recognizes `::1`, `fe80::`, `fc`/`fd` prefixes, fixing link-local addresses incorrectly appearing in the internet section.
+8. **Empty connection info fix:** `fmt_conns_ex` in the internet section no longer filters by source, displaying all inbound connections.
+9. **Documentation sync:** README updated with ISP classification notes, MaxMind DB path and download instructions, complete CLI parameter table; lesson_learned.md updated with ASCII layout fix and design decisions.
+
+**Key commits:** `8b9fcd9`, `037f025`

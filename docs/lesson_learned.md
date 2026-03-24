@@ -1,128 +1,137 @@
-# 经验教训
+# Lessons Learned
 
-> 本文档由 doc_agent 维护，记录每轮迭代中遇到的真实问题和解决方案。
-> 每轮追加，不覆盖历史。
-
----
-
-## 轮次 1（2026-03-23）
-
-### 问题 1：macOS `netstat` 输出中地址和端口之间没有冒号分隔
-
-**现象：** macOS 的 `netstat -an -p tcp` 输出格式为 `192.168.1.100.54321`，用最后一个点分隔 IP 和端口，而不是 `192.168.1.100:54321`。直接用 `split(':')` 无法解析，导致所有连接被丢弃。
-
-**根因：** macOS BSD netstat 沿用了历史传统格式，用最后一段作为端口号，与 Linux 的 `IP:PORT` 格式完全不同。
-
-**解决方案：** 在 `connection_tracker.rs` 的 `split_addr_port()` 函数中使用 `rsplitn(2, '.')` 从右侧分割，取最后一段为端口号，前面的部分整体作为 IP 地址。IPv6 格式 `[::1].80` 则单独处理，先找 `]` 的位置再截取端口。
+> Maintained by doc_agent. Records real problems encountered during each iteration and their solutions.
+> Appended each iteration; historical entries are never overwritten.
 
 ---
 
-### 问题 2：Linux `/proc/net/tcp` 地址是 little-endian 十六进制，字节序与直觉相反
+## Iteration 1 (2026-03-23)
 
-**现象：** `/proc/net/tcp` 中 `192.168.1.1:80` 对应的字段为 `0101A8C0:0050`，如果直接按大端序解析会得到完全错误的 IP 地址。
+### Issue 1: macOS `netstat` separates address and port with a dot, not a colon
 
-**根因：** Linux 内核在 `/proc/net/tcp` 中以 little-endian 32 位整数存储 IPv4 地址（即主机字节序）。`0x0101A8C0` 实际上是 `[0x01, 0x01, 0xA8, 0xC0]` 按小端排列，对应 `192.168.1.1`，需要逐字节反转解读。
+**Problem:** The output of `netstat -an -p tcp` on macOS uses the format `192.168.1.100.54321`, where the last dot separates the IP from the port. Using `split(':')` to parse the address discards all connections.
 
-**解决方案：** `parse_hex_addr()` 中对 8 位十六进制字符串（IPv4）解析为 `u32` 后，按字节分别取出 `raw & 0xFF`、`raw >> 8 & 0xFF` 等，按 little-endian 顺序拼接 IP 字符串。对 IPv6 的 32 位十六进制字节块则用 `u32::swap_bytes()` 翻转后再格式化。
+**Root cause:** macOS BSD netstat follows a historical format that uses the last segment as the port number, which is entirely different from the Linux `IP:PORT` format.
 
----
+**Solution:** In `connection_tracker.rs`, the `split_addr_port()` function uses `rsplitn(2, '.')` to split from the right, treating the last segment as the port and everything before it as the IP. The IPv6 format `[::1].80` is handled separately by locating the `]` character and slicing off the port.
 
-### 问题 3：TUI 拓扑图面板的 `r` 刷新键无法真正重新扫描
-
-**现象：** 用户在 TUI 中按 `r` 期望重新扫描网络、刷新节点和连接数据，但当前实现只更新了一条状态栏消息，节点列表和连接数据保持初始值不变。
-
-**根因：** `run_tui_loop` 持有已构建好的 `AppState`（包含初始 `Graph`），TUI 事件循环是单线程同步的，而重新扫描（`scan_subnet` + `get_connections`）是 async 操作，无法直接在事件循环里 `await`。在首轮实现时选择了简化方案，将重新扫描推迟处理。
-
-**解决方案（已知 TODO）：** 后续需要引入 `tokio::sync::mpsc` 通道：主 TUI 线程按 `r` 时向后台 task 发送扫描请求，后台 task 完成后将新的 `Graph` 通过通道发回，TUI 线程在 `event::poll` 超时时检查通道，收到新数据后更新 `AppState`。当前轮次未实现，已记录在 `docs/structure.md` 的 TODO 表中。
+**Takeaway:** Always verify the exact output format of system tools on each target platform before parsing. What works on Linux may not work on macOS, and vice versa.
 
 ---
 
-### 问题 4：`scan_subnet` 的 `Semaphore` 在高并发下的 acquire 错误处理
+### Issue 2: Linux `/proc/net/tcp` stores addresses in little-endian hex — the byte order is counter-intuitive
 
-**现象：** 在 `probe_host` 中调用 `sem.acquire().await`，返回值是 `Result<SemaphorePermit, AcquireError>`。初版代码用 `let _permit = sem.acquire().await;` 忽略了 `Result`，当 `Semaphore` 被关闭时（理论上不会，但 clippy 会警告）会 silent panic。
+**Problem:** In `/proc/net/tcp`, `192.168.1.1:80` appears as `0101A8C0:0050`. Parsing this naively as big-endian produces a completely wrong IP address.
 
-**根因：** `tokio::sync::Semaphore::acquire()` 返回 `Result`，在 semaphore 尚未关闭时总是 `Ok`，但 Rust 要求显式处理 `Result`，否则编译器警告。
+**Root cause:** The Linux kernel stores IPv4 addresses in `/proc/net/tcp` as little-endian 32-bit integers (host byte order). `0x0101A8C0` is the bytes `[0x01, 0x01, 0xA8, 0xC0]` in little-endian order, which corresponds to `192.168.1.1` after byte-reversal.
 
-**解决方案：** 使用 `let _permit = sem.acquire().await;` 的隐式丢弃是安全的（因为此处 Semaphore 不会被关闭），但为消除 clippy 的 `must_use` 提示，可改写为 `let Ok(_permit) = sem.acquire().await else { return (port, false); };`，或在任务里用 `sem.acquire_owned().await.ok()` 配合 `?` 传播。
+**Solution:** In `parse_hex_addr()`, the 8-character hex string (IPv4) is parsed as a `u32`, then each byte is extracted with `raw & 0xFF`, `raw >> 8 & 0xFF`, etc., and assembled in little-endian order to form the IP string. For the 32-bit hex blocks in IPv6 entries, `u32::swap_bytes()` is used before formatting.
 
----
-
-## 轮次 2（2026-03-23）
-
-### 问题 5：TUI 焦点管理缺乏视觉区分
-
-**现象：** 初始实现用 `u8` 类型的 `focus` 字段表示当前聚焦的面板（0 = 节点列表，1 = 拓扑图），渲染时所有面板边框颜色相同，用户按 Tab 切换焦点后无任何视觉反馈，无法判断当前操作作用在哪个面板上。
-
-**根因：** 用魔法数字（magic number）表达应用状态，既不自文档化，也无法在渲染层做分支判断，容易遗漏更新逻辑。
-
-**解决方案：** 引入 `FocusedPanel` 枚举（`NodeList` / `TopoGraph`）替代 `u8`。渲染时对每个面板分别计算边框颜色：当前聚焦面板使用 `Color::Yellow`，未聚焦面板使用默认白色，通过 `border_style` 设置到 `Block` 上。
-
-**教训：** TUI 中的用户状态应用类型系统表达，而非魔法数字。枚举不仅提升代码可读性，还能让编译器在 `match` 分支中强制处理所有状态，避免遗漏。
+**Takeaway:** When reading kernel data structures, always check the byte order documented in the kernel source or `/proc` documentation. Do not assume network byte order.
 
 ---
 
-### 问题 6：watch 模式循环逻辑写在 main() 函数内
+### Issue 3: The TUI `r` refresh key did not trigger a real rescan
 
-**现象：** watch 模式的 `loop { ... tokio::time::sleep(...).await }` 直接嵌入 `main()` 函数体，导致 `main.rs` 含有超过 50 行的业务流程代码，违反了项目规范中"main.rs 只做参数解析和分发调用，不含业务逻辑"的约定。
+**Problem:** Pressing `r` in the TUI was expected to rescan the network and refresh node and connection data, but the initial implementation only updated a status bar message. The node list and connection data remained unchanged.
 
-**根因：** 在功能原型阶段为求简便，将循环逻辑就地展开，未考虑后续可读性和规范一致性。
+**Root cause:** `run_tui_loop` held an already-constructed `AppState` (with the initial `Graph`). The TUI event loop is synchronous, while rescanning (`scan_subnet` + `get_connections`) requires async operations — `await` cannot be called directly inside the event loop. The first iteration chose a simplified approach and deferred the real rescan.
 
-**解决方案：** 提取 `run_watch_mode(args, interval)` 异步辅助函数，将循环体移入其中，`main()` 只保留一行调用：`run_watch_mode(&args, interval).await?;`。
+**Solution (applied in iteration 3):** Used `tokio::task::block_in_place` to run the async rescan synchronously inside the event loop. This allows the TUI thread to block briefly while the scan completes, then update `AppState` with the new `Graph`. A longer-term approach would use `tokio::sync::mpsc` channels to decouple scanning from rendering entirely.
 
-**教训：** `main()` 应该只做参数解析和分发调用，业务流程即使简单也应封装为独立函数。这既方便单元测试（可直接测试辅助函数），也让 `main()` 的整体结构一目了然。
-
----
-
-## 轮次 3（2026-03-23）
-
-### 问题 7：macOS 上活跃 UDP 连接几乎不可见
-
-**现象：** 在 macOS 上运行 `netopo --connections` 时，UDP 连接条目极少甚至为零，即使当前有 DNS 查询或其他 UDP 通信在进行。
-
-**根因：** macOS 内核对 UDP 套接字的状态追踪机制与 Linux 不同。UDP 是无连接协议，macOS 的 `netstat` 只在内核 UDP socket 处于活跃等待状态时才显示条目。DNS 查询（UDP:53）的生命周期极短（几毫秒），查询完成后内核立刻释放 socket，`netstat` 抓取快照时窗口几乎总是空的。相比之下，Linux 的 `/proc/net/udp` 会保留更长时间的 socket 状态信息。
-
-**这是预期行为，不是 bug。** `connection_tracker.rs` 的实现正确解析了 `netstat` 输出，UDP 连接确实存在只是太短暂。
-
-**解决方案（建议）：** 若需要捕获 UDP 流量，可使用 `--watch 1` 以 1 秒间隔持续刷新，提高捕获到短暂 UDP 连接的概率；或考虑后续版本集成 libpcap/BPF 进行实时抓包。当前实现无需修改。
+**Takeaway:** TUI event loops and async runtimes do not mix naturally. Plan the threading model before implementing refresh functionality.
 
 ---
 
-### 问题 8：ASCII 输出可读性差——节点堆叠 + 无结构 + 公网 IP 信息稀少
+### Issue 4: `Semaphore::acquire()` in `scan_subnet` silently discarded the `Result`
 
-**现象：** 旧版 ASCII 输出将所有连接平铺展示，无法区分局域网设备与公网连接；节点标签只显示裸 IP，无 hostname；端口格式为 `TCP:443(x3)` 不够简洁；没有整体摘要和 Top 端口信息。在真实环境中（数十条连接时），输出一屏无法理解网络结构。
+**Problem:** The initial code used `let _permit = sem.acquire().await;` which ignores the `Result<SemaphorePermit, AcquireError>`. While a non-closed semaphore always returns `Ok`, Clippy flags this as a `must_use` warning, and silent errors could occur if the semaphore were ever closed.
 
-**根因：** 初始实现为"能跑就行"的最小可行版本，直接迭代 edges 列表输出，未对网络结构进行语义分组，也未考虑信息层级。
+**Root cause:** `tokio::sync::Semaphore::acquire()` returns a `Result`, and Rust requires explicit handling of `Result` to avoid compiler warnings.
 
-**解决方案（新格式 v2，当前实现）：**
+**Solution:** Rewrote the call as `let Ok(_permit) = sem.acquire().await else { return (port, false); };`, making the error path explicit and eliminating the Clippy warning.
+
+**Takeaway:** Never silently discard `Result` values, even in cases that are theoretically safe. The explicit handling serves as documentation and guards against future changes to the semaphore's lifecycle.
+
+---
+
+## Iteration 2 (2026-03-23)
+
+### Issue 5: TUI focus state had no visual differentiation
+
+**Problem:** The initial implementation used a `u8` field named `focus` to represent the currently focused panel (0 = node list, 1 = topology graph). All panel borders rendered in the same color. After pressing Tab to switch focus, users had no visual feedback indicating which panel was active.
+
+**Root cause:** Using magic numbers to represent application state is neither self-documenting nor easy to use for branching logic in the renderer, making it easy to miss update paths.
+
+**Solution:** Replaced the `u8` with a `FocusedPanel` enum (`NodeList` / `TopoGraph`). At render time, each panel's border color is computed separately: the focused panel uses `Color::Yellow`, while unfocused panels use the default color, applied via `border_style` on the `Block`.
+
+**Takeaway:** In TUI applications, represent user-visible state with the type system rather than magic numbers. Enums improve readability and allow the compiler to enforce exhaustive handling in `match` branches.
+
+---
+
+### Issue 6: Watch mode loop logic was embedded in `main()`
+
+**Problem:** The `loop { ... tokio::time::sleep(...).await }` for watch mode was written directly inside `main()`, resulting in over 50 lines of business flow logic in `main.rs` — violating the project's rule that `main.rs` may only parse arguments and dispatch calls.
+
+**Root cause:** During rapid prototyping, the loop was expanded inline for simplicity without considering long-term readability or consistency with project conventions.
+
+**Solution:** Extracted a `run_watch_mode(args, interval)` async helper function and moved the loop body into it. `main()` retains a single dispatch call: `run_watch_mode(&args, interval).await?;`.
+
+**Takeaway:** `main()` should only parse arguments and dispatch calls — even simple business flows should be encapsulated in dedicated functions. This makes `main()` readable at a glance and makes the helper functions independently testable.
+
+---
+
+## Iteration 3 (2026-03-23)
+
+### Issue 7: Active UDP connections are nearly invisible on macOS
+
+**Problem:** Running `netopo --connections` on macOS yields very few or zero UDP connection entries, even when DNS queries or other UDP traffic is actively occurring.
+
+**Root cause:** macOS kernel UDP socket tracking differs from Linux. UDP is connectionless; macOS `netstat` only shows entries while the kernel UDP socket is in an active waiting state. DNS queries (UDP:53) have a lifecycle of only a few milliseconds — by the time `netstat` takes a snapshot, the socket has already been released. Linux's `/proc/net/udp` retains socket state information for longer.
+
+**This is expected behavior, not a bug.** The `connection_tracker.rs` implementation correctly parses `netstat` output; the UDP connections are simply too short-lived to be captured.
+
+**Solution (recommendation):** To capture UDP traffic, use `--watch 1` to poll at 1-second intervals, increasing the probability of catching short-lived UDP connections. Future versions could integrate libpcap/BPF for real-time packet capture. No code change is required in the current implementation.
+
+**Takeaway:** Understand the lifetime semantics of the data source before diagnosing missing data as a bug. On macOS, UDP socket visibility in `netstat` is inherently limited by the connectionless nature of the protocol.
+
+---
+
+### Issue 8: ASCII output was unreadable — flat list, no structure, sparse public IP information
+
+**Problem:** The original ASCII output rendered all connections as a flat list, with no distinction between LAN devices and internet connections. Node labels showed bare IPs with no hostnames. Port format (`TCP:443(x3)`) was not concise. There was no summary or top-port information. In real environments with dozens of connections, a single screen of output was impossible to comprehend.
+
+**Root cause:** The initial implementation was a minimum viable version that iterated the edges list directly without semantic grouping or information hierarchy.
+
+**Solution (new format v2, current implementation):**
 
 ```
 ╔══════════════════════════════════════════╗
-║              netopo 拓扑图                ║
-║             2024-01-15 10:30             ║
+║           netopo topology                ║
+║           2024-01-15 10:30               ║
 ╚══════════════════════════════════════════╝
 
-━━━ 局域网设备 (2) ━━━━━━━━━━━━━━━━━━━━
+━━━ LAN Devices (2) ━━━━━━━━━━━━━━━━━━━━
 
   [★ mymac.local] (192.168.1.100)
   └─► router.local (192.168.1.1)              TCP:443 x3
 
-━━━ 公网连接 (1) ━━━━━━━━━━━━━━━━━━━━━
+━━━ Internet Connections (1) ━━━━━━━━━━━
 
   Google
   └─► dns.google (8.8.8.8)                   UDP:53
 
 ───────────────────────────────────────────────────────────────────────────────
-活跃连接: 2  │  TCP: 1  UDP: 1  │  Top端口: 443(x3) 53(x1)
+Active: 2  │  TCP: 1  UDP: 1  │  Top ports: 443(x3) 53(x1)
 ```
 
-关键设计决策：
-1. **强制分两组**：`is_lan_ip()` 判断 IPv4 私有段和 IPv6 本地地址（fe80::/fc/fd/::1）为 LAN
-2. **公网按 ISP 聚合**：两层识别 — 先用 hostname 关键词 + IP 前缀（10 个主流厂商），再查 MaxMind GeoLite2-ASN 数据库，未知归"其他"
-3. **hostname 优先**：`node_display()` 输出 `"hostname (ip)"` 格式
-4. **端口格式统一为 `PROTO:PORT x N`**，支持 `--resolve-ports` 翻译为服务名
-5. **标题框固定 44 列**：`center_in_box()` 按视觉宽度居中（CJK 字符计为 2 列），时间格式 `"YYYY-MM-DD HH:MM"`
-6. **行宽 79 列**：`trunc()` 为 ANSI-aware 截断（跳过 `\x1b[...m` 转义序列计宽）
-7. **每 ISP 分组最多显示 10 条**，超出提示 `--all-connections` 参数显示全部
+Key design decisions:
+1. **Hard two-group split**: `is_lan_ip()` classifies IPv4 private ranges and IPv6 local addresses (`fe80::`/`fc`/`fd`/`::1`) as LAN
+2. **Internet connections grouped by ISP**: two-layer detection — hostname keywords + IP prefixes (10 major vendors), then MaxMind GeoLite2-ASN DB; unknowns go to "Other"
+3. **Hostname-first display**: `node_display()` outputs `"hostname (ip)"` format
+4. **Unified port format `PROTO:PORT x N`**, with `--resolve-ports` support for service name translation
+5. **Fixed 44-column title box**: `center_in_box()` centers by visual width (CJK = 2 columns), timestamp format `"YYYY-MM-DD HH:MM"`
+6. **79-column line width**: `trunc()` is ANSI-aware truncation (skips `\x1b[...m` escape sequences when measuring width)
+7. **Max 10 entries per ISP group** by default, with a prompt to use `--all-connections` for more
 
-**教训：** CLI 工具的输出设计不亚于代码设计本身。"能跑就行"的输出在真实数据量下毫无用处。应在第一轮就定义清晰的输出结构，而不是在多个 user 反馈后才重构。
-
+**Takeaway:** CLI output design is as important as code design. A "good enough" output becomes useless at real data volumes. Define a clear output structure from the first iteration rather than redesigning it after user feedback.
