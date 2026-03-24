@@ -2,7 +2,6 @@
 
 > English | [中文](README_CN.md)
 
-![Build](https://github.com/handsomevictor/netopo/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)
@@ -20,15 +19,15 @@ No root required on macOS and Linux.
 
 | Feature | netopo | nmap | ss / netstat | iftop |
 |---|:---:|:---:|:---:|:---:|
-| Root required | No | Often | No | Yes |
-| LAN device scan | Yes | Yes | No | No |
-| Connection tracking | Yes | No | Yes | Partial |
-| ISP grouping | Yes | No | No | No |
-| TUI interface | Yes | No | No | No |
-| JSON export | Yes | Partial | No | No |
-| Graphviz export | Yes | No | No | No |
-| Single binary | Yes | No | System tool | No |
-| Platform (no root) | macOS, Linux | Linux | macOS, Linux | Linux |
+| Root required | ✅ Not needed | ⚠️ Often | ✅ Not needed | ❌ Required |
+| LAN device scan | ✅ | ✅ | ❌ | ❌ |
+| Live connection tracking | ✅ | ❌ | ✅ | ⚠️ Bandwidth only |
+| ISP grouping | ✅ | ❌ | ❌ | ❌ |
+| Interactive TUI | ✅ | ❌ | ❌ | ✅ |
+| JSON export | ✅ | ⚠️ Partial | ❌ | ❌ |
+| Graphviz export | ✅ | ❌ | ❌ | ❌ |
+| Single static binary | ✅ | ❌ | System tool | ❌ |
+| macOS support (no root) | ✅ | ⚠️ Limited | ✅ | ❌ |
 
 ---
 
