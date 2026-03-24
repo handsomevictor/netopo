@@ -1,8 +1,33 @@
-> 中文文档 | [English](README.md)
-
 # netopo
 
-在终端里探测局域网拓扑、追踪 TCP/UDP 连接、并以 ASCII 图、Graphviz dot 或交互式 TUI 可视化的命令行工具，用 Rust 编写。
+> [English](README.md) | 中文
+
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)
+![Version](https://img.shields.io/badge/version-0.1.0-green.svg)
+
+> **由 Claude Code 全程构建** — 本项目由多 Agent Claude Code 系统自主开发，零人工代码干预。一组专职 Agent（架构师、开发者、测试、审查、运维、文档、仲裁）迭代构建、测试并持续完善代码库。仲裁 Agent 逐项核查完成标准，并在所有要求满足后通过 hook 自动终止循环。所有 Agent 配置均位于 `.claude/` 目录。
+
+用 Rust 编写的本地网络拓扑探测与可视化工具，在终端运行一条命令，即可清晰呈现局域网设备、活跃 TCP/UDP 连接及完整网络拓扑图——支持 ASCII 图、Graphviz dot、JSON 和交互式 TUI 四种输出格式。
+
+**macOS 和 Linux 无需 root 权限。**
+
+---
+
+## 为什么选择 netopo？
+
+| 功能 | netopo | nmap | ss / netstat | iftop |
+|---|:---:|:---:|:---:|:---:|
+| 需要 root | ✅ 不需要 | ⚠️ 通常需要 | ✅ 不需要 | ❌ 需要 |
+| 局域网设备扫描 | ✅ | ✅ | ❌ | ❌ |
+| 实时连接追踪 | ✅ | ❌ | ✅ | ⚠️ 仅带宽 |
+| ISP 分组 | ✅ | ❌ | ❌ | ❌ |
+| 交互式 TUI | ✅ | ❌ | ❌ | ✅ |
+| JSON 导出 | ✅ | ⚠️ 部分支持 | ❌ | ❌ |
+| Graphviz 导出 | ✅ | ❌ | ❌ | ❌ |
+| 单一静态二进制 | ✅ | ❌ | 系统工具 | ❌ |
+| macOS 支持（无需 root）| ✅ | ⚠️ 有限 | ✅ | ❌ |
 
 ---
 
@@ -29,90 +54,91 @@ cargo install --path .
 
 ## 快速开始
 
-### 1. 扫描本机网卡 + 打印 ASCII 拓扑图
+### 扫描局域网并打印 ASCII 拓扑图
 
 ```bash
 netopo --scan --ascii
 ```
 
 输出示例：
+
 ```
 ╔══════════════════════════════════════════╗
-║              netopo 拓扑图                ║
-║             2026-03-23 23:03             ║
+║           netopo topology                ║
+║           2026-03-23 23:03               ║
 ╚══════════════════════════════════════════╝
 
-━━━ 局域网设备 (2) ━━━━━━━━━━━━━━━━━━━━
+━━━ LAN Devices (2) ━━━━━━━━━━━━━━━━━━━━
 
   [★ mymac.local] (192.168.1.100)
-  └─► router.local (192.168.1.1)              TCP:HTTPS x3
+  └─► 192.168.1.1    router.local                   TCP:HTTPS x3
 
-━━━ 公网连接 (2) ━━━━━━━━━━━━━━━━━━━━━
+━━━ Internet Connections (2) ━━━━━━━━━━━
 
   Google
-  └─► dns.google (8.8.8.8)                   UDP:53
+  └─► 8.8.8.8        dns.google                     UDP:53
 
   AWS
-  ├─► ec2-3-33-188-2.compute-1.amazonaws.com (3.33.188.2)  TCP:443
-  └─► … 还有 5 条，使用 --all-connections 显示全部
+  ├─► 3.33.188.2     ec2-3-33-188-2.compute-1.amaz  TCP:443
+  └─► … 5 more, use --all-connections to show all
 
 ───────────────────────────────────────────────────────────────────────────────
-活跃连接: 8  │  TCP: 6  UDP: 2  │  Top端口: HTTPS(x6) 53(x2)
+Active: 8  │  TCP: 6  UDP: 2  │  Top ports: HTTPS(x6) 53(x2)
 ```
 
-### 2. 扫描子网设备
-
-```bash
-netopo --scan --subnet 192.168.1.0/24
-```
-
-扫描指定 CIDR 内所有活跃主机，探测 20 个常用端口，并做 DNS 反向解析。默认并发 256 连接，单连接超时 500ms。
-
-### 3. 实时监控连接（每 10 秒刷新）
-
-```bash
-netopo --connections --watch 10 --ascii
-```
-
-每 10 秒快照一次本机 TCP/UDP 连接，并重新打印 ASCII 拓扑图。Ctrl+C 退出。
-
-### 4. 导出拓扑为 JSON 文件
-
-```bash
-netopo --scan --connections --output-json topology.json
-```
-
-生成符合项目 Schema 的 JSON 文件，包含 nodes、edges、captured_at、local_ip、summary 字段。
-
-### 5. 启动 TUI 交互界面
+### 启动交互式 TUI
 
 ```bash
 netopo --scan --connections --tui
 ```
 
-进入全屏交互界面：左侧节点列表、右侧连接详情、底部 ASCII 拓扑图、底栏快捷键提示。
+全屏交互界面，包含节点列表、连接详情面板、ASCII 拓扑视图和键盘快捷键提示。
 
-### 6. 过滤 + 端口名解析
+### 扫描指定子网
+
+```bash
+netopo --scan --subnet 192.168.1.0/24
+```
+
+扫描指定 CIDR 内所有活跃主机，探测 20 个常用端口，并做 DNS 反向解析。默认 256 并发连接，单连接超时 500ms。
+
+### 实时监控连接（每 10 秒刷新）
+
+```bash
+netopo --connections --watch 10 --ascii
+```
+
+每 10 秒快照一次本机 TCP/UDP 连接，重新打印 ASCII 拓扑图。Ctrl+C 退出。
+
+### 导出拓扑为 JSON
+
+```bash
+netopo --scan --connections --output-json topology.json
+```
+
+生成结构化 JSON 文件，包含 `nodes`、`edges`、`captured_at`、`local_ip`、`summary` 字段。
+
+### 过滤 + 端口名解析
 
 ```bash
 netopo --connections --ascii --filter Google --resolve-ports
 ```
 
-只显示与 Google 相关的连接，并将端口号翻译为服务名（443→HTTPS、80→HTTP 等）。
+只显示与 Google 相关的连接，并将端口号翻译为服务名（443 → HTTPS、22 → SSH 等）。
 
 ---
 
 ## ISP 识别与 IP 归属分类
 
-ASCII 输出将公网连接按 ISP 分组显示。分类采用两层逻辑：
+ASCII 输出将公网连接按 ISP 分组显示，分类采用两层逻辑：
 
-### 第一层：硬编码规则（无需任何文件，即时生效）
+### 第一层：硬编码规则（无需外部文件，即时生效）
 
 通过 hostname 关键词和 IP 前缀识别以下厂商：
 
 | ISP | 识别规则 |
 |-----|---------|
-| Google | hostname 含 `google`/`1e100`，或 IP 前缀 `8.8.`/`142.250.`/`216.58.` 等 |
+| Google | hostname 含 `google`/`1e100`，或 IP 前缀 `8.8.`/`142.250.`/`216.58.` |
 | GitHub | hostname 含 `github`，或 IP 前缀 `140.82.`/`185.199.` |
 | Apple | hostname 含 `apple`，或 IP 段 `17.x.x.x` |
 | Cloudflare | hostname 含 `cloudflare`，或 IP `1.1.1.x`/`1.0.0.x`/`104.18.x`/`172.64.x` |
@@ -135,15 +161,15 @@ ASCII 输出将公网连接按 ISP 分组显示。分类采用两层逻辑：
 netopo --update-ip-db
 ```
 
-数据库文件保存到：`~/.config/netopo/GeoLite2-ASN.mmdb`
+数据库保存至：`~/.config/netopo/GeoLite2-ASN.mmdb`
 
-> 下载需要系统已安装 `curl`，且能访问外网。下载完成后立即生效，无需重启。
+> 需要系统已安装 `curl` 且可访问外网。下载完成后立即生效，无需重启。
 
 **数据库来源：** [MaxMind GeoLite2](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) — 免费，无需注册，每周更新。
 
 ---
 
-## CLI 参数完整列表
+## CLI 参数参考
 
 ```
 USAGE:
@@ -185,8 +211,8 @@ USAGE:
 
 ### 常用组合
 
-| 场景 | 命令 |
-|------|------|
+| 使用场景 | 命令 |
+|---------|------|
 | 快速查看局域网 | `netopo --scan --ascii` |
 | 全功能交互界面 | `netopo --scan --connections --tui` |
 | 导出拓扑快照 | `netopo --scan --output-json result.json` |
@@ -206,18 +232,18 @@ USAGE:
 | 元素 | 颜色 |
 |------|------|
 | 本机节点 `[★ …]` | 亮蓝粗体 |
-| LAN 设备连接行 | 绿色 |
+| 局域网设备连接行 | 绿色 |
 | ISP 分组标签 | 黄色粗体 |
 | TCP 端口 | 青色 |
 | UDP 端口 | 黄色 |
 | 分隔线/框线 | 深灰 |
 
-### IPv4/IPv6 私有地址识别
+### 私有地址识别
 
 以下地址段被视为局域网，不出现在公网连接区：
 
-- **IPv4**：`10.x.x.x`、`172.16-31.x.x`、`192.168.x.x`、`127.x.x.x`
-- **IPv6**：`::1`（loopback）、`fe80::` 开头（link-local）、`fc/fd` 开头（unique local）
+- **IPv4**：`10.x.x.x`、`172.16–31.x.x`、`192.168.x.x`、`127.x.x.x`
+- **IPv6**：`::1`（loopback）、`fe80::` 开头（link-local）、`fc`/`fd` 开头（unique local）
 
 ---
 
@@ -232,12 +258,12 @@ USAGE:
 ## 平台支持
 
 | 平台 | 状态 | 连接追踪实现 |
-|------|------|-------------|
-| macOS | 已支持 | `netstat -an -p tcp/udp` 解析 |
+|------|------|------------|
+| macOS | 已支持 | 解析 `netstat -an -p tcp/udp` 输出 |
 | Linux | 已支持 | 读取 `/proc/net/tcp`、`/proc/net/udp` |
-| Windows | 未测试 | 暂不支持（运行时报错提示） |
+| Windows | 未测试 | 暂不支持（运行时给出友好错误提示） |
 
-macOS 和 Linux 均无需 root 权限即可运行基本功能。连接追踪在某些系统上可能需要更高权限；权限不足时程序会给出友好提示而非崩溃。
+macOS 和 Linux 均无需 root 权限即可运行全部核心功能。连接追踪在某些系统上可能需要更高权限；权限不足时程序给出友好提示而非崩溃。
 
 ---
 
