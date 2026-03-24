@@ -91,6 +91,8 @@ pub struct AsciiOptions {
     pub use_color: bool,
     pub resolve_ports: bool,
     pub filter: Option<String>,
+    /// false = 每组最多 10 条；true = 不限
+    pub all_connections: bool,
     pub asn_db: Option<maxminddb::Reader<Vec<u8>>>,
 }
 
@@ -549,56 +551,22 @@ fn build_ascii(graph: &Graph, opts: &AsciiOptions, out: &mut String) {
                 colors.sep, total_pub, colors.reset
             ));
 
+            const DEFAULT_MAX: usize = 10;
+
             for (isp, ips) in &isp_map {
-                // Akamai 聚合显示（不展开每条连接）
-                if isp == "Akamai" {
-                    let total_count: u32 = ips
-                        .iter()
-                        .flat_map(|&ip| graph.edges.iter().filter(move |e| e.dst == ip))
-                        .map(|e| e.count)
-                        .sum();
-                    let bar_w = (total_count as usize).min(20);
-                    let bar = "█".repeat(bar_w);
-                    // 取最常见的协议:端口
-                    let mut proto_port_counts: std::collections::HashMap<String, u32> =
-                        std::collections::HashMap::new();
-                    for &dst_ip in ips {
-                        for e in graph.edges.iter().filter(|e| e.dst == dst_ip) {
-                            let key = if opts.resolve_ports {
-                                format!(
-                                    "{}:{}",
-                                    e.protocol,
-                                    resolve_port_name(e.dst_port)
-                                        .unwrap_or(&e.dst_port.to_string())
-                                )
-                            } else {
-                                format!("{}:{}", e.protocol, e.dst_port)
-                            };
-                            *proto_port_counts.entry(key).or_default() += e.count;
-                        }
-                    }
-                    let top_pp = proto_port_counts
-                        .into_iter()
-                        .max_by_key(|(_, c)| *c)
-                        .map(|(k, _)| k)
-                        .unwrap_or_default();
-                    out.push_str(&format!(
-                        "  {}Akamai CDN{}  {}{}{}  {} connections  {}\n\n",
-                        colors.isp,
-                        colors.reset,
-                        colors.sep,
-                        bar,
-                        colors.reset,
-                        total_count,
-                        top_pp
-                    ));
-                    continue;
-                }
+                let cap = if opts.all_connections {
+                    ips.len()
+                } else {
+                    DEFAULT_MAX.min(ips.len())
+                };
+                let hidden = ips.len() - cap;
 
                 out.push_str(&format!("  {}{}{}\n", colors.isp, isp, colors.reset));
-                let n = ips.len();
-                for (i, dst_ip) in ips.iter().enumerate() {
-                    let connector = if i + 1 < n { "├─►" } else { "└─►" };
+                let displayed = &ips[..cap];
+                let n = displayed.len();
+                for (i, dst_ip) in displayed.iter().enumerate() {
+                    let is_last = i + 1 == n && hidden == 0;
+                    let connector = if is_last { "└─►" } else { "├─►" };
                     let dst_node = graph.nodes.iter().find(|nd| nd.ip == *dst_ip);
                     let label = node_display(dst_node, dst_ip);
                     let conns =
@@ -607,6 +575,12 @@ fn build_ascii(graph: &Graph, opts: &AsciiOptions, out: &mut String) {
                     out.push_str(&format!(
                         "{}\n",
                         trunc(&format!("{}{}", line_plain, conns), 79)
+                    ));
+                }
+                if hidden > 0 {
+                    out.push_str(&format!(
+                        "  {}└─► … 还有 {} 条，使用 --all-connections 显示全部{}\n",
+                        colors.sep, hidden, colors.reset
                     ));
                 }
                 out.push('\n');

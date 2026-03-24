@@ -27,6 +27,7 @@ async fn run_watch_mode(cli: &Cli, local_ip: &str) {
                         use_color: std::io::stdout().is_terminal(),
                         resolve_ports: cli.resolve_ports,
                         filter: cli.filter.clone(),
+                        all_connections: cli.all_connections,
                         asn_db: visualization::load_asn_db(),
                     };
                     visualization::print_ascii(&new_graph, &opts);
@@ -157,6 +158,7 @@ async fn main() -> anyhow::Result<()> {
             use_color: std::io::stdout().is_terminal(),
             resolve_ports: cli.resolve_ports,
             filter: cli.filter.clone(),
+            all_connections: cli.all_connections,
             asn_db: visualization::load_asn_db(),
         };
         visualization::print_ascii(&graph, &opts);

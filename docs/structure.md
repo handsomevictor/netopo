@@ -1,7 +1,7 @@
 # 项目结构
 
 > 本文档由 doc_agent 在每轮迭代后维护，反映当前实际状态。
-> 最后更新：轮次 1（2026-03-23）
+> 最后更新：轮次 4（2026-03-24）
 
 ---
 
@@ -58,6 +58,7 @@ netopo/
 - 参数分组：扫描选项、连接选项、图构建、输出格式、通用
 - `parse_ports()` 支持逗号分隔格式（`"22,80,443"`）和范围格式（`"1-1024"`），两者可混用
 - 默认端口列表：21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5432, 5900, 6379, 8080, 8443, 8888, 9200, 27017
+- 轮次 4 新增：`--resolve-ports`、`--filter <KEYWORD>`、`--all-connections`、`--update-ip-db`
 
 ---
 
@@ -177,12 +178,14 @@ netopo/
 - UDP 边添加 `style=dashed`
 - 节点标签：IP + hostname + `N ports`，用 `\n` 分隔
 
-**F7 — `print_ascii()`：**
-- 打印带边框的标题（含扫描时间）
-- 以本机节点为根，打印出站连接树
-- 连接箭头：`──TCP:PORT──►` 或 `╌╌UDP:PORT╌╌►`
-- 每行调用 `truncate(s, 80)` 截断，保证 80 列不溢出
-- 末行汇总节点数和连接数
+**F7 — `print_ascii(graph, &AsciiOptions)`：**
+- 标题框固定 44 列，内容按视觉宽度（`visual_width()` CJK=2 列）居中，时间格式 `YYYY-MM-DD HH:MM`
+- 公网连接按 ISP 分组（两层识别：硬编码规则 + MaxMind GeoLite2-ASN DB）
+- IPv4 私有段 + IPv6 本地地址（`fe80::`/`fc`/`fd`/`::1`）归入局域网区
+- 每 ISP 分组默认最多 10 条，超出提示 `--all-connections`
+- ANSI 颜色（isatty 自动检测，管道输出关闭）：本机亮蓝粗体、LAN 绿色、ISP 黄色粗体、TCP 青色、UDP 黄色、分隔符深灰
+- `trunc()` 为 ANSI-aware 截断（跳过转义序列计宽），保证 79 列不溢出
+- 支持 `--resolve-ports`（端口号→服务名）和 `--filter <keyword>`（按 ISP/IP 过滤）
 
 **F8 — `run_tui()` / `run_tui_loop()` / `draw_ui()`：**
 - 四区域布局：标题栏(1行) + 中间区域(节点列表+连接详情) + 拓扑图(4行) + 状态栏(1行)
@@ -198,8 +201,6 @@ netopo/
 
 | 模块 | 问题 | 优先级 |
 |------|------|--------|
-| scanner.rs | IPv6 地址跳过，不参与子网扫描 | 低 |
 | connection_tracker.rs | Windows 平台未实现 | 中 |
-| visualization.rs | TUI `r` 刷新键目前只显示提示，不真正重新扫描 | 高 |
-| visualization.rs | TUI 拓扑图面板只显示本机出站连接，不显示完整网络 | 中 |
-| scanner.rs | `default_cidr()` 直接用 pnet IpNet 的 CIDR，可能不是 /24 | 低 |
+| visualization.rs | TUI 拓扑图面板只显示本机出站连接，不显示完整网络 | 低 |
+| scanner.rs | IPv6 地址跳过，不参与子网扫描 | 低 |

@@ -93,6 +93,10 @@ pub struct Cli {
     #[arg(long, value_name = "KEYWORD", help_heading = "输出格式")]
     pub filter: Option<String>,
 
+    /// 显示每个 ISP 分组的全部连接（默认每组最多显示 10 条）
+    #[arg(long, help_heading = "输出格式")]
+    pub all_connections: bool,
+
     // ── 通用 ──────────────────────────────────────────────────────────────────
     /// 详细输出
     #[arg(short, long, help_heading = "通用")]

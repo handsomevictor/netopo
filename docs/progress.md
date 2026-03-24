@@ -19,11 +19,7 @@
 
 | 编号 | 描述 | 优先级 |
 |------|------|--------|
-| BUG-01 | TUI `r` 刷新键不真正重新扫描，只显示提示信息 | 高 |
 | TODO-01 | Windows 平台连接追踪未实现（运行时报错） | 中 |
-| TODO-02 | IPv6 地址在扫描和连接追踪中处理不完整 | 低 |
-| TODO-03 | `cargo test --all` 尚未在 CI 中验证全部通过 | 高 |
-| TODO-04 | `cargo clippy -- -D warnings` 尚未验证零 warning | 高 |
 
 ---
 
@@ -86,10 +82,30 @@
 
 ---
 
-### 轮次 3（进行中，2026-03-23）
+### 轮次 3（2026-03-23）
 
-**进行中工作：**
+**完成工作：**
 
-1. **测试覆盖率提升：** 补充 scanner.rs 和 connection_tracker.rs 单元测试，目标各模块覆盖率达到 70% 以上。
+1. **CI 修复：** 修复 Linux 并行测试中临时文件名冲突导致的 exit 101，引入 `unique_tmp()` 辅助函数（AtomicU32 + 进程 ID）。
+2. **ASCII 输出重设计：** 完整重构 F7，局域网/公网分组、ISP 聚合、底部摘要（问题 8）。
+3. **全部 B 级 blocker 修复：** TUI `r` 刷新键真正重新扫描（block_in_place）、Linux decode_tcp_state 大小写问题、裸 unwrap 消除。
 
-2. **文档更新：** 更新 docs/tutorial.md、docs/lesson_learned.md、docs/progress.md 以反映轮次 2 的全部变更（本次操作）。
+**关键 commits：** `c9f7cae`、`60ccb06`
+
+---
+
+### 轮次 4（2026-03-24）
+
+**完成工作：**
+
+1. **ANSI 颜色输出：** 本机节点亮蓝粗体、LAN 设备绿色、ISP 标签黄色粗体、TCP 端口青色、UDP 端口黄色、分隔符深灰；isatty 自动检测。
+2. **MaxMind GeoLite2-ASN 集成：** 添加 `maxminddb` crate，`--update-ip-db` 下载到 `~/.config/netopo/GeoLite2-ASN.mmdb`，对"其他"分组 IP 做 ASN 组织名查询。
+3. **硬编码 ISP 规则扩展：** Cloudflare 补充 104.18/172.64 前缀；新增 Canonical/Microsoft/Fastly/Meta。
+4. **新 CLI 参数：** `--resolve-ports`（端口号→服务名）、`--filter <keyword>`（按 ISP/IP 过滤）、`--all-connections`（不限每组条数）、`--update-ip-db`。
+5. **ISP 分组上限：** 默认每组最多 10 条，超出提示 `--all-connections`，不再对 Akamai 特殊聚合。
+6. **标题框重设计：** 固定 44 列，内容按视觉宽度居中（CJK 2 列），时间格式 `YYYY-MM-DD HH:MM`。
+7. **IPv6 本地地址修复：** `is_lan_ip()` 新增 `::1`、`fe80::`、`fc/fd` 前缀识别，修复 link-local 地址误入公网区的问题。
+8. **空连接信息修复：** 公网连接区 `fmt_conns_ex` 改为不过滤 src，显示所有入向连接。
+9. **文档同步：** README 新增 ISP 分类说明、MaxMind DB 路径和下载方式、完整 CLI 参数表；lesson_learned.md 修复 ASCII 图对齐问题并更新设计决策。
+
+**关键 commits：** `8b9fcd9`、`037f025`
