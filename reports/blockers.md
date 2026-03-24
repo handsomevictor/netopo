@@ -60,3 +60,12 @@ KeyCode::Char('r') => {
 **问题：** `decode_tcp_state` 函数使用大写十六进制字符串匹配（`"0A"`、`"0B"`），但 Linux `/proc/net/tcp` 实际输出小写（`0a`、`0b`）。导致 LISTEN（`0a`）和 CLOSING（`0b`）状态在真实 Linux 系统上返回 "UNKNOWN"。
 
 **修复说明：** 在 match 前对输入调用 `.to_uppercase()`，即 `match hex.to_uppercase().as_str() { ... }`，使得大小写均可正确匹配。所有现有测试（使用大写 fixture）继续通过。
+BLOCKER[hook]: cargo check 失败
+BLOCKER[hook]: cargo check 失败
+BLOCKER[hook]: cargo check 失败
+BLOCKER[hook]: cargo check 失败
+BLOCKER[hook]: cargo check 失败
+BLOCKER[hook]: cargo check 失败
+BLOCKER[hook]: cargo check 失败
+BLOCKER[hook]: cargo check 失败
+BLOCKER[hook]: cargo check 失败
