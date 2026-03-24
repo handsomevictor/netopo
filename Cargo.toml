@@ -26,6 +26,7 @@ anyhow = "1"
 thiserror = "1"
 dns-lookup = "2"
 ipnet = "2"
+maxminddb = "0.23"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["iphlpapi", "winsock2"] }

@@ -85,6 +85,52 @@ fn build_node_label(node: &Node) -> String {
 // F7 — ASCII 拓扑图
 // ──────────────────────────────────────────────────────────────────────────────
 
+/// ASCII 输出选项
+#[derive(Default)]
+pub struct AsciiOptions {
+    pub use_color: bool,
+    pub resolve_ports: bool,
+    pub filter: Option<String>,
+    pub asn_db: Option<maxminddb::Reader<Vec<u8>>>,
+}
+
+/// ANSI 颜色代码集合（use_color=false 时全为空字符串）
+struct Colors {
+    reset: &'static str,
+    local: &'static str,    // 本机节点：亮蓝粗体
+    lan_node: &'static str, // LAN 设备：绿色
+    isp: &'static str,      // ISP 标签：黄色粗体
+    tcp: &'static str,      // TCP 端口：青色
+    udp: &'static str,      // UDP 端口：黄色
+    sep: &'static str,      // 分隔符：深灰
+}
+
+impl Colors {
+    fn new(enabled: bool) -> Self {
+        if enabled {
+            Self {
+                reset: "\x1b[0m",
+                local: "\x1b[1;94m",
+                lan_node: "\x1b[32m",
+                isp: "\x1b[1;33m",
+                tcp: "\x1b[36m",
+                udp: "\x1b[33m",
+                sep: "\x1b[90m",
+            }
+        } else {
+            Self {
+                reset: "",
+                local: "",
+                lan_node: "",
+                isp: "",
+                tcp: "",
+                udp: "",
+                sep: "",
+            }
+        }
+    }
+}
+
 /// 判断 IP 是否属于局域网私有地址段（10/172.16-31/192.168/127）
 fn is_lan_ip(ip: &str) -> bool {
     if ip.starts_with("192.168.") || ip.starts_with("10.") || ip.starts_with("127.") {
@@ -101,7 +147,7 @@ fn is_lan_ip(ip: &str) -> bool {
     false
 }
 
-/// 根据 hostname/IP 简单判断公网 ISP 归属
+/// 根据 hostname/IP 简单判断公网 ISP 归属（返回 &'static str）
 fn isp_of(hostname: Option<&str>, ip: &str) -> &'static str {
     let h = hostname.unwrap_or("").to_lowercase();
     if h.contains("google")
@@ -120,7 +166,12 @@ fn isp_of(hostname: Option<&str>, ip: &str) -> &'static str {
     if h.contains("apple") || ip.starts_with("17.") {
         return "Apple";
     }
-    if h.contains("cloudflare") || ip.starts_with("1.1.1.") || ip.starts_with("1.0.0.") {
+    if h.contains("cloudflare")
+        || ip.starts_with("1.1.1.")
+        || ip.starts_with("1.0.0.")
+        || ip.starts_with("104.18.")
+        || ip.starts_with("172.64.")
+    {
         return "Cloudflare";
     }
     if h.contains("amazonaws") || h.contains("aws") {
@@ -130,6 +181,120 @@ fn isp_of(hostname: Option<&str>, ip: &str) -> &'static str {
         return "Akamai";
     }
     "其他"
+}
+
+/// MaxMind ASN 记录结构
+#[derive(serde::Deserialize, Debug)]
+struct AsnRecord {
+    #[serde(default)]
+    autonomous_system_organization: String,
+}
+
+/// 综合 ISP 分类：先用硬编码规则，再用 MaxMind ASN DB
+fn isp_name(hostname: Option<&str>, ip: &str, db: Option<&maxminddb::Reader<Vec<u8>>>) -> String {
+    let hardcoded = isp_of(hostname, ip);
+    if hardcoded != "其他" {
+        return hardcoded.to_string();
+    }
+    if let Some(reader) = db {
+        if let Ok(addr) = ip.parse::<std::net::IpAddr>() {
+            if let Ok(record) = reader.lookup::<AsnRecord>(addr) {
+                if !record.autonomous_system_organization.is_empty() {
+                    return record.autonomous_system_organization;
+                }
+            }
+        }
+    }
+    "其他".to_string()
+}
+
+/// 计算字符串的视觉宽度（CJK 字符算 2 列）
+fn visual_width(s: &str) -> usize {
+    s.chars()
+        .map(|c| {
+            let u = c as u32;
+            if (0x1100..=0x115F).contains(&u)
+                || (0x2E80..=0x303F).contains(&u)
+                || (0x3040..=0x9FFF).contains(&u)
+                || (0xAC00..=0xD7AF).contains(&u)
+                || (0xF900..=0xFAFF).contains(&u)
+                || (0xFE10..=0xFE19).contains(&u)
+                || (0xFE30..=0xFE6F).contains(&u)
+                || (0xFF00..=0xFF60).contains(&u)
+                || (0xFFE0..=0xFFE6).contains(&u)
+            {
+                2
+            } else {
+                1
+            }
+        })
+        .sum()
+}
+
+/// 将内容居中到 inner_width 视觉列（不足则两侧补空格）
+fn center_in_box(content: &str, content_vw: usize, inner: usize) -> String {
+    let pad = inner.saturating_sub(content_vw);
+    let left = pad / 2;
+    let right = pad - left;
+    format!("{}{}{}", " ".repeat(left), content, " ".repeat(right))
+}
+
+/// 从 RFC3339 时间戳提取 "YYYY-MM-DD HH:MM"
+fn parse_time_str(ts: &str) -> String {
+    if ts.len() >= 16 {
+        ts[..16].replace('T', " ")
+    } else {
+        ts.to_string()
+    }
+}
+
+/// 截断字符串到最多 max_vis 视觉列（ANSI 代码不计入，超出加 …）
+fn trunc(s: &str, max_vis: usize) -> String {
+    let mut vis = 0usize;
+    let mut result = String::new();
+    let mut in_esc = false;
+    for c in s.chars() {
+        if c == '\x1b' {
+            in_esc = true;
+            result.push(c);
+            continue;
+        }
+        if in_esc {
+            result.push(c);
+            if c.is_ascii_alphabetic() {
+                in_esc = false;
+            }
+            continue;
+        }
+        let w = if visual_width(&c.to_string()) == 2 {
+            2
+        } else {
+            1
+        };
+        if vis + w > max_vis {
+            result.push('…');
+            break;
+        }
+        vis += w;
+        result.push(c);
+    }
+    result
+}
+
+/// 将端口号映射为服务名（--resolve-ports 使用）
+fn resolve_port_name(port: u16) -> Option<&'static str> {
+    match port {
+        443 => Some("HTTPS"),
+        80 => Some("HTTP"),
+        22 => Some("SSH"),
+        5228 => Some("GCM"),
+        5223 => Some("APNs"),
+        445 => Some("SMB"),
+        3306 => Some("MySQL"),
+        5432 => Some("Postgres"),
+        6379 => Some("Redis"),
+        _ => None,
+    }
 }
 
 /// 节点标签：hostname 优先，IP 放括号内；若无 hostname 则仅显示 IP
@@ -144,16 +309,37 @@ fn node_display(node: Option<&Node>, ip: &str) -> String {
     ip.to_string()
 }
 
-/// 格式化从 src_ip 到 dst_ip 的连接列表，格式："TCP:443 x3  UDP:53"
-fn fmt_conns(edges: &[Edge], src_ip: &str, dst_ip: &str) -> String {
+/// 格式化连接列表，支持颜色和端口名解析
+fn fmt_conns_ex(
+    edges: &[Edge],
+    src_ip: &str,
+    dst_ip: &str,
+    resolve_ports: bool,
+    colors: &Colors,
+) -> String {
     let mut parts: Vec<String> = edges
         .iter()
         .filter(|e| e.src == src_ip && e.dst == dst_ip)
         .map(|e| {
-            if e.count > 1 {
-                format!("{}:{} x{}", e.protocol, e.dst_port, e.count)
+            let port_label = if resolve_ports {
+                resolve_port_name(e.dst_port)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| e.dst_port.to_string())
             } else {
-                format!("{}:{}", e.protocol, e.dst_port)
+                e.dst_port.to_string()
+            };
+            let color = if e.protocol == "TCP" {
+                colors.tcp
+            } else {
+                colors.udp
+            };
+            if e.count > 1 {
+                format!(
+                    "{}{}:{} x{}{}",
+                    color, e.protocol, port_label, e.count, colors.reset
+                )
+            } else {
+                format!("{}{}:{}{}", color, e.protocol, port_label, colors.reset)
             }
         })
         .collect();
@@ -161,60 +347,103 @@ fn fmt_conns(edges: &[Edge], src_ip: &str, dst_ip: &str) -> String {
     parts.join("  ")
 }
 
-/// 截断字符串到最多 max_chars 个 Unicode 字符（超出末尾加 …）
-fn trunc(s: &str, max_chars: usize) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    if chars.len() <= max_chars {
-        s.to_string()
-    } else if max_chars == 0 {
-        String::new()
+/// MaxMind GeoLite2-ASN 数据库默认路径
+fn asn_db_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home)
+        .join(".config")
+        .join("netopo")
+        .join("GeoLite2-ASN.mmdb")
+}
+
+/// 尝试加载 MaxMind ASN 数据库（文件不存在时返回 None）
+pub fn load_asn_db() -> Option<maxminddb::Reader<Vec<u8>>> {
+    let path = asn_db_path();
+    maxminddb::Reader::open_readfile(path).ok()
+}
+
+/// 从网络下载/更新 MaxMind GeoLite2-ASN 数据库（需要系统 curl）
+pub fn update_asn_db() -> anyhow::Result<()> {
+    let path = asn_db_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("创建目录失败: {}", parent.display()))?;
+    }
+    let url = "https://git.io/GeoLite2-ASN";
+    let path_str = path.to_str().unwrap_or("GeoLite2-ASN.mmdb");
+    eprintln!("正在下载 GeoLite2-ASN.mmdb ...");
+    let status = std::process::Command::new("curl")
+        .args(["-L", "-o", path_str, url])
+        .status()
+        .context("无法执行 curl，请确认已安装")?;
+    if status.success() {
+        eprintln!("数据库已更新: {}", path.display());
+        Ok(())
     } else {
-        chars[..max_chars.saturating_sub(1)]
-            .iter()
-            .collect::<String>()
-            + "…"
+        anyhow::bail!("curl 下载失败，退出码: {:?}", status.code())
     }
 }
 
-/// 截断字符串到最多 max_len 个 Unicode 字符（无省略号，用于固定宽度框）
-fn truncate(s: &str, max_len: usize) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    if chars.len() <= max_len {
-        s.to_string()
-    } else {
-        chars[..max_len].iter().collect()
-    }
-}
+/// 构建 ASCII 拓扑图（带颜色、端口名解析、过滤、Akamai 聚合）
+fn build_ascii(graph: &Graph, opts: &AsciiOptions, out: &mut String) {
+    let colors = Colors::new(opts.use_color);
+    let db_ref = opts.asn_db.as_ref();
+    let filter = opts.filter.as_deref().map(|s| s.to_lowercase());
 
-/// 构建 ASCII 拓扑图：局域网/公网分组、ISP 聚合、底部摘要
-fn build_ascii(graph: &Graph, out: &mut String) {
-    let now = &graph.captured_at;
-    out.push_str("╔══════════════════════════════════════╗\n");
-    out.push_str("║           netopo 拓扑图               ║\n");
-    out.push_str(&format!("║  扫描时间: {:29}║\n", truncate(now, 29)));
-    out.push_str("╚══════════════════════════════════════╝\n\n");
+    // ── 标题框（固定 44 列）────────────────────────────────────────────────────
+    const INNER: usize = 42;
+    let title = "netopo 拓扑图";
+    let title_vw = visual_width(title);
+    let title_centered = center_in_box(title, title_vw, INNER);
+    let time_str = parse_time_str(&graph.captured_at);
+    let time_vw = time_str.len(); // 全 ASCII
+    let time_centered = center_in_box(&time_str, time_vw, INNER);
+
+    out.push_str(&format!(
+        "{}╔{}╗{}\n",
+        colors.sep,
+        "═".repeat(INNER),
+        colors.reset
+    ));
+    out.push_str(&format!(
+        "{}║{}{}{}║{}\n",
+        colors.sep, colors.reset, title_centered, colors.sep, colors.reset
+    ));
+    out.push_str(&format!(
+        "{}║{}{}{}║{}\n",
+        colors.sep, colors.reset, time_centered, colors.sep, colors.reset
+    ));
+    out.push_str(&format!(
+        "{}╚{}╝{}\n\n",
+        colors.sep,
+        "═".repeat(INNER),
+        colors.reset
+    ));
 
     let local_node = graph.nodes.iter().find(|n| n.is_local);
     let lan_nodes: Vec<&Node> = graph.nodes.iter().filter(|n| is_lan_ip(&n.ip)).collect();
 
     // 收集公网目标 IP（去重后排序）
-    let mut pub_dst_vec: Vec<&str> = {
-        let set: std::collections::HashSet<&str> = graph
-            .edges
-            .iter()
-            .filter(|e| !is_lan_ip(&e.dst))
-            .map(|e| e.dst.as_str())
-            .collect();
+    let pub_dst_vec: Vec<&str> = {
+        let mut set: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for e in &graph.edges {
+            if !is_lan_ip(&e.dst) {
+                set.insert(e.dst.as_str());
+            }
+        }
         let mut v: Vec<&str> = set.into_iter().collect();
         v.sort_unstable();
         v
     };
-    let _ = &mut pub_dst_vec; // suppress unused_mut on older rustc
 
     // ── 局域网设备 ────────────────────────────────────────────────────────────
     out.push_str(&format!(
-        "━━━ 局域网设备 ({}) ━━━━━━━━━━━━━━━━━━━━\n\n",
-        lan_nodes.len()
+        "{}━━━ 局域网设备 ({}) ━━━━━━━━━━━━━━━━━━━━{}\n\n",
+        colors.sep,
+        lan_nodes.len(),
+        colors.reset
     ));
 
     if let Some(local) = local_node {
@@ -222,74 +451,149 @@ fn build_ascii(graph: &Graph, out: &mut String) {
             Some(h) => format!("[★ {}] ({})", h, local.ip),
             None => format!("[★ {}]", local.ip),
         };
-        out.push_str(&format!("  {}\n", trunc(&hdr, 78)));
+        out.push_str(&format!(
+            "  {}{}{}\n",
+            colors.local,
+            trunc(&hdr, 78),
+            colors.reset
+        ));
 
-        // 出站 LAN 连接（按首次出现顺序）
+        // 出站 LAN 连接（按首次出现顺序，支持 --filter）
         let mut lan_dsts: Vec<&str> = Vec::new();
         let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for e in &graph.edges {
             if e.src == local.ip && is_lan_ip(&e.dst) && seen.insert(e.dst.as_str()) {
+                // 过滤：IP 或 hostname 包含关键词
+                if let Some(ref kw) = filter {
+                    let dst_node = graph.nodes.iter().find(|nd| nd.ip == e.dst);
+                    let label = node_display(dst_node, &e.dst).to_lowercase();
+                    if !e.dst.to_lowercase().contains(kw.as_str()) && !label.contains(kw.as_str()) {
+                        continue;
+                    }
+                }
                 lan_dsts.push(e.dst.as_str());
             }
         }
         let n = lan_dsts.len();
         for (i, dst_ip) in lan_dsts.iter().enumerate() {
-            let connector = if i + 1 < n {
-                "  ├─►"
-            } else {
-                "  └─►"
-            };
+            let connector = if i + 1 < n { "├─►" } else { "└─►" };
             let dst_node = graph.nodes.iter().find(|nd| nd.ip == *dst_ip);
             let label = node_display(dst_node, dst_ip);
-            let conns = fmt_conns(&graph.edges, &local.ip, dst_ip);
-            let line = format!("{} {:<38}  {}", connector, label, conns);
-            out.push_str(&format!("{}\n", trunc(&line, 79)));
+            let conns = fmt_conns_ex(&graph.edges, &local.ip, dst_ip, opts.resolve_ports, &colors);
+            let line_plain = format!("  {} {:<38}  ", connector, label);
+            out.push_str(&format!(
+                "{}{}{}{}\n",
+                colors.lan_node,
+                trunc(&line_plain, 47),
+                colors.reset,
+                conns
+            ));
         }
         out.push('\n');
     }
 
     // ── 公网连接 ──────────────────────────────────────────────────────────────
     if !pub_dst_vec.is_empty() {
-        out.push_str(&format!(
-            "━━━ 公网连接 ({}) ━━━━━━━━━━━━━━━━━━━━━\n\n",
-            pub_dst_vec.len()
-        ));
-
         // 按 ISP 聚合（BTreeMap 保证键有序）
-        let mut isp_map: std::collections::BTreeMap<&'static str, Vec<&str>> =
+        let mut isp_map: std::collections::BTreeMap<String, Vec<&str>> =
             std::collections::BTreeMap::new();
         for &dst_ip in &pub_dst_vec {
             let dst_node = graph.nodes.iter().find(|n| n.ip == dst_ip);
-            let isp = isp_of(dst_node.and_then(|n| n.hostname.as_deref()), dst_ip);
+            let isp = isp_name(dst_node.and_then(|n| n.hostname.as_deref()), dst_ip, db_ref);
             isp_map.entry(isp).or_default().push(dst_ip);
         }
 
-        let src_ip = local_node
-            .map(|n| n.ip.as_str())
-            .unwrap_or(graph.local_ip.as_str());
+        // 过滤：只保留 ISP 名或 IP 匹配的条目
+        if let Some(ref kw) = filter {
+            isp_map.retain(|isp_label, ips| {
+                isp_label.to_lowercase().contains(kw.as_str())
+                    || ips.iter().any(|ip| ip.to_lowercase().contains(kw.as_str()))
+            });
+        }
 
-        for (isp, ips) in &isp_map {
-            out.push_str(&format!("  {}\n", isp));
-            let n = ips.len();
-            for (i, dst_ip) in ips.iter().enumerate() {
-                let connector = if i + 1 < n {
-                    "  ├─►"
-                } else {
-                    "  └─►"
-                };
-                let dst_node = graph.nodes.iter().find(|nd| nd.ip == *dst_ip);
-                let label = node_display(dst_node, dst_ip);
-                let conns = fmt_conns(&graph.edges, src_ip, dst_ip);
-                let line = format!("{} {:<38}  {}", connector, label, conns);
-                out.push_str(&format!("{}\n", trunc(&line, 79)));
+        if !isp_map.is_empty() {
+            let total_pub: usize = isp_map.values().map(|v| v.len()).sum();
+            out.push_str(&format!(
+                "{}━━━ 公网连接 ({}) ━━━━━━━━━━━━━━━━━━━━━{}\n\n",
+                colors.sep, total_pub, colors.reset
+            ));
+
+            let src_ip = local_node
+                .map(|n| n.ip.as_str())
+                .unwrap_or(graph.local_ip.as_str());
+
+            for (isp, ips) in &isp_map {
+                // Akamai 聚合显示（不展开每条连接）
+                if isp == "Akamai" {
+                    let total_count: u32 = ips
+                        .iter()
+                        .flat_map(|&ip| graph.edges.iter().filter(move |e| e.dst == ip))
+                        .map(|e| e.count)
+                        .sum();
+                    let bar_w = (total_count as usize).min(20);
+                    let bar = "█".repeat(bar_w);
+                    // 取最常见的协议:端口
+                    let mut proto_port_counts: std::collections::HashMap<String, u32> =
+                        std::collections::HashMap::new();
+                    for &dst_ip in ips {
+                        for e in graph.edges.iter().filter(|e| e.dst == dst_ip) {
+                            let key = if opts.resolve_ports {
+                                format!(
+                                    "{}:{}",
+                                    e.protocol,
+                                    resolve_port_name(e.dst_port)
+                                        .unwrap_or(&e.dst_port.to_string())
+                                )
+                            } else {
+                                format!("{}:{}", e.protocol, e.dst_port)
+                            };
+                            *proto_port_counts.entry(key).or_default() += e.count;
+                        }
+                    }
+                    let top_pp = proto_port_counts
+                        .into_iter()
+                        .max_by_key(|(_, c)| *c)
+                        .map(|(k, _)| k)
+                        .unwrap_or_default();
+                    out.push_str(&format!(
+                        "  {}Akamai CDN{}  {}{}{}  {} connections  {}\n\n",
+                        colors.isp,
+                        colors.reset,
+                        colors.sep,
+                        bar,
+                        colors.reset,
+                        total_count,
+                        top_pp
+                    ));
+                    continue;
+                }
+
+                out.push_str(&format!("  {}{}{}\n", colors.isp, isp, colors.reset));
+                let n = ips.len();
+                for (i, dst_ip) in ips.iter().enumerate() {
+                    let connector = if i + 1 < n { "├─►" } else { "└─►" };
+                    let dst_node = graph.nodes.iter().find(|nd| nd.ip == *dst_ip);
+                    let label = node_display(dst_node, dst_ip);
+                    let conns =
+                        fmt_conns_ex(&graph.edges, src_ip, dst_ip, opts.resolve_ports, &colors);
+                    let line_plain = format!("  {} {:<38}  ", connector, label);
+                    out.push_str(&format!(
+                        "{}\n",
+                        trunc(&format!("{}{}", line_plain, conns), 79)
+                    ));
+                }
+                out.push('\n');
             }
-            out.push('\n');
         }
     }
 
     // ── 底部摘要 ──────────────────────────────────────────────────────────────
-    out.push_str(&"─".repeat(79));
-    out.push('\n');
+    out.push_str(&format!(
+        "{}{}{}\n",
+        colors.sep,
+        "─".repeat(79),
+        colors.reset
+    ));
 
     let mut port_counts: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
     for e in &graph.edges {
@@ -300,7 +604,16 @@ fn build_ascii(graph: &Graph, out: &mut String) {
     let top3: Vec<String> = top_ports
         .iter()
         .take(3)
-        .map(|(p, c)| format!("{}(x{})", p, c))
+        .map(|(p, c)| {
+            let label = if opts.resolve_ports {
+                resolve_port_name(*p)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| p.to_string())
+            } else {
+                p.to_string()
+            };
+            format!("{}(x{})", label, c)
+        })
         .collect();
 
     let summary = if top3.is_empty() {
@@ -321,8 +634,8 @@ fn build_ascii(graph: &Graph, out: &mut String) {
     out.push('\n');
 }
 
-pub fn print_ascii(graph: &Graph) {
-    print!("{}", render_ascii_string(graph));
+pub fn print_ascii(graph: &Graph, opts: &AsciiOptions) {
+    print!("{}", render_ascii_string_with_opts(graph, opts));
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -853,11 +1166,17 @@ pub fn render_dot_string(graph: &Graph) -> String {
     dot
 }
 
-/// 将 Graph 渲染为 ASCII 字符串（供测试使用）
-pub fn render_ascii_string(graph: &Graph) -> String {
+/// 将 Graph 渲染为 ASCII 字符串（带选项）
+pub fn render_ascii_string_with_opts(graph: &Graph, opts: &AsciiOptions) -> String {
     let mut out = String::new();
-    build_ascii(graph, &mut out);
+    build_ascii(graph, opts, &mut out);
     out
+}
+
+/// 将 Graph 渲染为 ASCII 字符串（默认选项，供测试使用）
+#[cfg(test)]
+fn render_ascii_string(graph: &Graph) -> String {
+    render_ascii_string_with_opts(graph, &AsciiOptions::default())
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -85,6 +85,14 @@ pub struct Cli {
     #[arg(long, help_heading = "输出格式")]
     pub tui: bool,
 
+    /// 将端口号解析为服务名（443→HTTPS, 80→HTTP 等）
+    #[arg(long, help_heading = "输出格式")]
+    pub resolve_ports: bool,
+
+    /// 按 ISP 名称或 IP 关键词过滤 ASCII 输出
+    #[arg(long, value_name = "KEYWORD", help_heading = "输出格式")]
+    pub filter: Option<String>,
+
     // ── 通用 ──────────────────────────────────────────────────────────────────
     /// 详细输出
     #[arg(short, long, help_heading = "通用")]
@@ -93,6 +101,10 @@ pub struct Cli {
     /// 静默模式
     #[arg(short, long, help_heading = "通用")]
     pub quiet: bool,
+
+    /// 下载更新 MaxMind GeoLite2-ASN 数据库到 ~/.config/netopo/
+    #[arg(long, help_heading = "通用")]
+    pub update_ip_db: bool,
 }
 
 impl Cli {

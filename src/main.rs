@@ -22,7 +22,14 @@ async fn run_watch_mode(cli: &Cli, local_ip: &str) {
             Ok(conns) => {
                 let new_graph = graph_builder::build_graph(vec![], conns, local_ip);
                 if cli.ascii {
-                    visualization::print_ascii(&new_graph);
+                    use std::io::IsTerminal;
+                    let opts = visualization::AsciiOptions {
+                        use_color: std::io::stdout().is_terminal(),
+                        resolve_ports: cli.resolve_ports,
+                        filter: cli.filter.clone(),
+                        asn_db: visualization::load_asn_db(),
+                    };
+                    visualization::print_ascii(&new_graph, &opts);
                 }
             }
             Err(e) => eprintln!("刷新失败: {}", e),
@@ -33,6 +40,12 @@ async fn run_watch_mode(cli: &Cli, local_ip: &str) {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    // --update-ip-db：下载 MaxMind ASN 数据库后退出
+    if cli.update_ip_db {
+        visualization::update_asn_db()?;
+        return Ok(());
+    }
 
     // 解析端口列表
     let ports = cli.parse_ports()?;
@@ -139,7 +152,14 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if cli.ascii {
-        visualization::print_ascii(&graph);
+        use std::io::IsTerminal;
+        let opts = visualization::AsciiOptions {
+            use_color: std::io::stdout().is_terminal(),
+            resolve_ports: cli.resolve_ports,
+            filter: cli.filter.clone(),
+            asn_db: visualization::load_asn_db(),
+        };
+        visualization::print_ascii(&graph, &opts);
     }
 
     if cli.tui {
@@ -159,6 +179,7 @@ async fn main() -> anyhow::Result<()> {
         && !cli.tui
         && cli.output_json.is_none()
         && cli.output_dot.is_none()
+        && !cli.update_ip_db
     {
         eprintln!("提示: 使用 --help 查看所有选项。例如: netopo --scan --ascii");
     }
