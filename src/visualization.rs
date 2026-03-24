@@ -322,16 +322,30 @@ fn resolve_port_name(port: u16) -> Option<&'static str> {
     }
 }
 
-/// 节点标签：hostname 优先，IP 放括号内；若无 hostname 则仅显示 IP
-fn node_display(node: Option<&Node>, ip: &str) -> String {
-    if let Some(n) = node {
-        if let Some(ref h) = n.hostname {
-            if h != ip {
-                return format!("{} ({})", h, ip);
+/// IP 列：固定 IP_W 列宽，左对齐，超出硬截断（无省略号）
+const IP_W: usize = 16;
+/// Hostname 列：固定 HOST_W 列宽，左对齐，超出硬截断；与 IP 相同时全空格
+const HOST_W: usize = 30;
+
+fn ip_col(ip: &str) -> String {
+    if ip.len() <= IP_W {
+        format!("{:<IP_W$}", ip)
+    } else {
+        ip[..IP_W].to_string()
+    }
+}
+
+fn host_col(hostname: Option<&str>, ip: &str) -> String {
+    match hostname {
+        Some(h) if h != ip => {
+            if h.len() <= HOST_W {
+                format!("{:<HOST_W$}", h)
+            } else {
+                h[..HOST_W].to_string()
             }
         }
+        _ => " ".repeat(HOST_W),
     }
-    ip.to_string()
 }
 
 /// 格式化连接列表，支持颜色和端口名解析
@@ -493,8 +507,13 @@ fn build_ascii(graph: &Graph, opts: &AsciiOptions, out: &mut String) {
                 // 过滤：IP 或 hostname 包含关键词
                 if let Some(ref kw) = filter {
                     let dst_node = graph.nodes.iter().find(|nd| nd.ip == e.dst);
-                    let label = node_display(dst_node, &e.dst).to_lowercase();
-                    if !e.dst.to_lowercase().contains(kw.as_str()) && !label.contains(kw.as_str()) {
+                    let host_lower = dst_node
+                        .and_then(|nd| nd.hostname.as_deref())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    if !e.dst.to_lowercase().contains(kw.as_str())
+                        && !host_lower.contains(kw.as_str())
+                    {
                         continue;
                     }
                 }
@@ -505,7 +524,7 @@ fn build_ascii(graph: &Graph, opts: &AsciiOptions, out: &mut String) {
         for (i, dst_ip) in lan_dsts.iter().enumerate() {
             let connector = if i + 1 < n { "├─►" } else { "└─►" };
             let dst_node = graph.nodes.iter().find(|nd| nd.ip == *dst_ip);
-            let label = node_display(dst_node, dst_ip);
+            let hostname = dst_node.and_then(|nd| nd.hostname.as_deref());
             let conns = fmt_conns_ex(
                 &graph.edges,
                 Some(&local.ip),
@@ -513,13 +532,16 @@ fn build_ascii(graph: &Graph, opts: &AsciiOptions, out: &mut String) {
                 opts.resolve_ports,
                 &colors,
             );
-            let line_plain = format!("  {} {:<38}  ", connector, label);
+            // "  ├─► " = 6, ip_col = 16, "  " = 2, host_col = 30, "  " = 2 → fixed 56 before conns
+            let prefix = format!(
+                "  {} {}  {}  ",
+                connector,
+                ip_col(dst_ip),
+                host_col(hostname, dst_ip)
+            );
             out.push_str(&format!(
                 "{}{}{}{}\n",
-                colors.lan_node,
-                trunc(&line_plain, 47),
-                colors.reset,
-                conns
+                colors.lan_node, prefix, colors.reset, conns
             ));
         }
         out.push('\n');
@@ -568,14 +590,17 @@ fn build_ascii(graph: &Graph, opts: &AsciiOptions, out: &mut String) {
                     let is_last = i + 1 == n && hidden == 0;
                     let connector = if is_last { "└─►" } else { "├─►" };
                     let dst_node = graph.nodes.iter().find(|nd| nd.ip == *dst_ip);
-                    let label = node_display(dst_node, dst_ip);
+                    let hostname = dst_node.and_then(|nd| nd.hostname.as_deref());
                     let conns =
                         fmt_conns_ex(&graph.edges, None, dst_ip, opts.resolve_ports, &colors);
-                    let line_plain = format!("  {} {:<38}  ", connector, label);
-                    out.push_str(&format!(
-                        "{}\n",
-                        trunc(&format!("{}{}", line_plain, conns), 79)
-                    ));
+                    // 固定两列：IP(16) + hostname(30)，连接信息对齐到第 56 列
+                    let prefix = format!(
+                        "  {} {}  {}  ",
+                        connector,
+                        ip_col(dst_ip),
+                        host_col(hostname, dst_ip)
+                    );
+                    out.push_str(&format!("{}{}\n", prefix, conns));
                 }
                 if hidden > 0 {
                     out.push_str(&format!(
