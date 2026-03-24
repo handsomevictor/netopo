@@ -131,8 +131,19 @@ impl Colors {
     }
 }
 
-/// 判断 IP 是否属于局域网私有地址段（10/172.16-31/192.168/127）
+/// 判断 IP 是否属于局域网/本地地址段
+/// IPv4: 10/172.16-31/192.168/127
+/// IPv6: ::1 (loopback), fe80:: (link-local), fc00::/7 (unique local fc/fd)
 fn is_lan_ip(ip: &str) -> bool {
+    // IPv6 本地地址
+    if ip == "::1" {
+        return true;
+    }
+    let lower = ip.to_lowercase();
+    if lower.starts_with("fe80:") || lower.starts_with("fc") || lower.starts_with("fd") {
+        return true;
+    }
+    // IPv4 私有段
     if ip.starts_with("192.168.") || ip.starts_with("10.") || ip.starts_with("127.") {
         return true;
     }
@@ -174,11 +185,23 @@ fn isp_of(hostname: Option<&str>, ip: &str) -> &'static str {
     {
         return "Cloudflare";
     }
-    if h.contains("amazonaws") || h.contains("aws") {
+    if h.contains("amazonaws") || h.contains("aws") || h.contains("amazon") {
         return "AWS";
     }
-    if h.contains("akamai") {
+    if h.contains("akamai") || h.contains("akamaitechnologies") {
         return "Akamai";
+    }
+    if h.contains("canonical") || h.contains("ubuntu") || ip.starts_with("185.125.") {
+        return "Canonical";
+    }
+    if h.contains("microsoft") || h.contains("msft") || h.contains("azure") {
+        return "Microsoft";
+    }
+    if h.contains("fastly") {
+        return "Fastly";
+    }
+    if h.contains("meta.") || h.contains("facebook") || h.contains("instagram") {
+        return "Meta";
     }
     "其他"
 }
@@ -310,16 +333,17 @@ fn node_display(node: Option<&Node>, ip: &str) -> String {
 }
 
 /// 格式化连接列表，支持颜色和端口名解析
+/// src_ip = Some(ip) 只显示从该 src 出发的连接；None 显示所有到 dst 的连接
 fn fmt_conns_ex(
     edges: &[Edge],
-    src_ip: &str,
+    src_ip: Option<&str>,
     dst_ip: &str,
     resolve_ports: bool,
     colors: &Colors,
 ) -> String {
     let mut parts: Vec<String> = edges
         .iter()
-        .filter(|e| e.src == src_ip && e.dst == dst_ip)
+        .filter(|e| e.dst == dst_ip && src_ip.is_none_or(|s| e.src == s))
         .map(|e| {
             let port_label = if resolve_ports {
                 resolve_port_name(e.dst_port)
@@ -344,6 +368,7 @@ fn fmt_conns_ex(
         })
         .collect();
     parts.sort();
+    parts.dedup();
     parts.join("  ")
 }
 
@@ -479,7 +504,13 @@ fn build_ascii(graph: &Graph, opts: &AsciiOptions, out: &mut String) {
             let connector = if i + 1 < n { "├─►" } else { "└─►" };
             let dst_node = graph.nodes.iter().find(|nd| nd.ip == *dst_ip);
             let label = node_display(dst_node, dst_ip);
-            let conns = fmt_conns_ex(&graph.edges, &local.ip, dst_ip, opts.resolve_ports, &colors);
+            let conns = fmt_conns_ex(
+                &graph.edges,
+                Some(&local.ip),
+                dst_ip,
+                opts.resolve_ports,
+                &colors,
+            );
             let line_plain = format!("  {} {:<38}  ", connector, label);
             out.push_str(&format!(
                 "{}{}{}{}\n",
@@ -517,10 +548,6 @@ fn build_ascii(graph: &Graph, opts: &AsciiOptions, out: &mut String) {
                 "{}━━━ 公网连接 ({}) ━━━━━━━━━━━━━━━━━━━━━{}\n\n",
                 colors.sep, total_pub, colors.reset
             ));
-
-            let src_ip = local_node
-                .map(|n| n.ip.as_str())
-                .unwrap_or(graph.local_ip.as_str());
 
             for (isp, ips) in &isp_map {
                 // Akamai 聚合显示（不展开每条连接）
@@ -575,7 +602,7 @@ fn build_ascii(graph: &Graph, opts: &AsciiOptions, out: &mut String) {
                     let dst_node = graph.nodes.iter().find(|nd| nd.ip == *dst_ip);
                     let label = node_display(dst_node, dst_ip);
                     let conns =
-                        fmt_conns_ex(&graph.edges, src_ip, dst_ip, opts.resolve_ports, &colors);
+                        fmt_conns_ex(&graph.edges, None, dst_ip, opts.resolve_ports, &colors);
                     let line_plain = format!("  {} {:<38}  ", connector, label);
                     out.push_str(&format!(
                         "{}\n",
