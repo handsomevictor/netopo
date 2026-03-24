@@ -69,3 +69,6 @@ BLOCKER[hook]: cargo check 失败
 BLOCKER[hook]: cargo check 失败
 BLOCKER[hook]: cargo check 失败
 BLOCKER[hook]: cargo check 失败
+BLOCKER[hook]: cargo check 失败
+BLOCKER[hook]: cargo check 失败
+BLOCKER[hook]: cargo check 失败
